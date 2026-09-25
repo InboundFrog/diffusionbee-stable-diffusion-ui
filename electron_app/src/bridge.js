@@ -21,7 +21,8 @@ function start_bridge() {
         python = require('child_process').spawn( bin_path );
     }
     else if (fs.existsSync(script_path)) {
-        python = require('child_process').spawn(process.env.PYTHON || 'python3', [script_path]);
+        let venv_python = require('path').join(require('path').dirname(script_path), "..", ".venv", "bin", "python");
+        python = require('child_process').spawn(process.env.PYTHON || (fs.existsSync(venv_python) ? venv_python : 'python3'), [script_path]);
     }
     else{
         const path = require('path');

@@ -269,6 +269,8 @@ export default {
                     drop.push("guidance_scale")
                 if(meta.family != "sd15")
                     drop.push("is_clip_skip_2")
+                if(!["sd15", "sdxl"].includes(meta.family)) // flow-matching families keep their own scheduler
+                    drop.push("scheduler")
                 if(!(meta.supports_controlnet && am.catalog.some(c => c.model_meta_data.type == 'controlnet' && c.model_meta_data.family == meta.family)))
                     drop.push("controlnet_acc")
             }

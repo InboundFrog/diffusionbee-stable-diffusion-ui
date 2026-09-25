@@ -125,9 +125,12 @@ export default {
                         if(p >= 0 ){
                             this.generation_state_msg = iter_time/1000 + " s/it";
                             this.iter_times.push(iter_time);
-                            let median = this.iter_times.sort((a, b) => a - b)[Math.floor(this.iter_times.length / 2)];
+                            let times = this.iter_times.slice(1).sort((a, b) => a - b); // the first step also carries model loading
+                            if(times.length == 0)
+                                return this.attached_cbs.on_progress(p, iter_time);
+                            let median = times[Math.floor(times.length / 2)];
                             let time_remaining = moment.duration(median*((100-p)*this.nb_its/100));
-                              
+
                             this.remaining_times = compute_time_remaining(time_remaining);
                             clearInterval(this.generation_loop);
                             this.generation_loop = setInterval(() => {
@@ -213,7 +216,7 @@ export default {
             this.generation_state_msg = ""
             this.remaining_times = ""
             this.iter_times = []
-            this.nb_its = prompt_params.ddim_steps||25
+            this.nb_its = prompt_params.num_steps||25
             send_to_py("t2im " + JSON.stringify(prompt_params)) 
         }
 

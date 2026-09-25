@@ -451,6 +451,8 @@ function run_realesrgan(input_path , cb ){
     let proc = require('child_process').spawn( bin_path  , ['-m' , weights_path , '-i' , input_path , '-o' , out_path ]);
 
     console.log([bin_path , '-m' , weights_path , '-i' , input_path , '-o' , out_path ])
+    proc.on('error', (err) => console.error(`sr error: ${err.message}`)); // missing binary: 'close' still reports the failure
+
 
     proc.stderr.on('data', (data) => {
         console.error(`sr stderr: ${data}`);
