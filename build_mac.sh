@@ -13,7 +13,7 @@ cd "$(dirname "$0")"
 ROOT=$PWD
 OUT=$ROOT/dist                               # gitignored
 BACKEND=$OUT/diffusionbee_backend            # -> BACKEND_BUILD_PATH -> Resources/core/
-REQS=backends/stable_diffusion/requirements.txt
+REQS=backends/stable_diffusion/requirements.lock  # regenerate: MACOSX_DEPLOYMENT_TARGET=14.0 uv pip compile backends/stable_diffusion/requirements.txt --python-version 3.12 --python-platform aarch64-apple-darwin -o backends/stable_diffusion/requirements.lock
 
 [ "$(uname -sm)" = "Darwin arm64" ] || { echo "error: build on an Apple Silicon Mac" >&2; exit 1; }
 command -v uv >/dev/null || { echo "error: install uv (brew install uv)" >&2; exit 1; }

@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 import math
 import time
-from scipy.ndimage.filters import gaussian_filter
+
 
 import onnxruntime as ort
 
@@ -123,7 +123,7 @@ class Body(object):
 
         for part in range(18):
             map_ori = heatmap_avg[:, :, part]
-            one_heatmap = gaussian_filter(map_ori, sigma=3)
+            one_heatmap = cv2.GaussianBlur(map_ori, (25, 25), 3, borderType=cv2.BORDER_REFLECT)  # = scipy gaussian_filter(sigma=3)
 
             map_left = np.zeros(one_heatmap.shape)
             map_left[1:, :] = one_heatmap[:-1, :]

@@ -115,7 +115,7 @@ Needs [uv](https://docs.astral.sh/uv/) (`brew install uv`), Node.js and Xcode co
 ```
 
 What it does:
-1. Creates a clean Python 3.12 venv in `dist/venv` with uv from `backends/stable_diffusion/requirements.txt`.
+1. Creates a clean Python 3.12 venv in `dist/venv` with uv from `backends/stable_diffusion/requirements.lock` (compiled from `requirements.txt`).
 2. Bundles the backend with PyInstaller (`packaging/diffusionbee_backend.spec`, `--onedir`) into
    `dist/diffusionbee_backend/`, then smoke-tests the bundle.
 3. Builds the Electron app with `BACKEND_BUILD_PATH=dist/diffusionbee_backend`; electron-builder copies it
