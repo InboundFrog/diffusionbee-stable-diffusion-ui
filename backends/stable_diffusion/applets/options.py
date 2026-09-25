@@ -49,10 +49,10 @@ options = """
             {
                 "id": "selected_sd_model",
                 "component": "Dropdown",
-                "options": ["Default_SD1.5" ],
+                "options": ["SD-1.5" ],
                 "icon": "photo",
                 "output_type" : "str",
-                "default_value" : "Default_SD1.5",
+                "default_value" : "SD-1.5",
                 "is_persistant" : true
             }
         ]
