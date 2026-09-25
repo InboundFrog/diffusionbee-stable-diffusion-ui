@@ -2,11 +2,11 @@
     "families": {
         "sd15":      { "default_steps": 25, "default_guidance": 7.5, "default_size": 512,  "supports_negative_prompt": true,  "supports_img2img": true, "supports_inpaint": true,  "supports_controlnet": true },
         "sdxl":      { "default_steps": 30, "default_guidance": 6,   "default_size": 1024, "supports_negative_prompt": true,  "supports_img2img": true, "supports_inpaint": true,  "supports_controlnet": true },
-        "sd3":       { "default_steps": 28, "default_guidance": 4.5, "default_size": 1024, "supports_negative_prompt": true,  "supports_img2img": true, "supports_inpaint": true,  "supports_controlnet": false },
+        "sd3":       { "default_steps": 40, "default_guidance": 4.5, "default_size": 1024, "supports_negative_prompt": true,  "supports_img2img": true, "supports_inpaint": true,  "supports_controlnet": false },
         "flux":      { "default_steps": 28, "default_guidance": 3.5, "default_size": 1024, "supports_negative_prompt": false, "supports_img2img": true, "supports_inpaint": true,  "supports_controlnet": false },
         "flux2":     { "default_steps": 4,  "default_guidance": 1,   "default_size": 1024, "supports_negative_prompt": false, "supports_img2img": true, "supports_inpaint": false, "supports_controlnet": false },
-        "zimage":    { "default_steps": 8,  "default_guidance": 0,   "default_size": 1024, "supports_negative_prompt": false, "supports_img2img": true, "supports_inpaint": false, "supports_controlnet": false },
-        "qwenimage": { "default_steps": 30, "default_guidance": 4,   "default_size": 1328, "supports_negative_prompt": true,  "supports_img2img": true, "supports_inpaint": false, "supports_controlnet": false }
+        "zimage":    { "default_steps": 9,  "default_guidance": 0,   "default_size": 1024, "supports_negative_prompt": false, "supports_img2img": true, "supports_inpaint": true, "supports_controlnet": false },
+        "qwenimage": { "default_steps": 50, "default_guidance": 4,   "default_size": 1328, "supports_negative_prompt": true,  "supports_img2img": true, "supports_inpaint": false, "supports_controlnet": false }
     },
     "models": [
         {
@@ -66,15 +66,6 @@
             "min_ram_gb": 16,
             "requires_hf_token": true,
             "model_meta_data": { "type": "sd_model", "family": "sd3" }
-        },
-        {
-            "id": "Qwen-Image-2.1",
-            "title": "Qwen-Image 2.1",
-            "description": "Large model with strong prompt following and text rendering, 1328px.",
-            "hf_repo": "Qwen/Qwen-Image-2.1",
-            "size_gb": 33.1,
-            "min_ram_gb": 32,
-            "model_meta_data": { "type": "sd_model", "family": "qwenimage" }
         },
         {
             "id": "SD-1.5-Inpainting",
