@@ -1,4 +1,4 @@
-import { ipcMain, dialog, clipboard } from 'electron'
+import { ipcMain, dialog, clipboard, net } from 'electron'
 import { app , screen } from 'electron'
 import settings from 'electron-settings';
 
@@ -623,65 +623,51 @@ ipcMain.on('get_assets_dir', (event, arg) => {
 
 
 
-ipcMain.on('download-file', (event, url, dest, downloadId) => {
-  
-  const fs = require('fs');
-  const path = require('path');
-
-  const file = fs.createWriteStream(dest);
-  const request = require('request');
-
-  const crypto = require('crypto');
-
-  let hash = crypto.createHash('md5');
-
-  request.get({
-      url,
-      followRedirect: true,
-      rejectUnauthorized: false, // ignore SSL certificate errors,
-      timeout: 20000 , //20s
-    })
-    .on('response', response => {
-      const totalBytes = parseInt(response.headers['content-length'], 10);
-      let downloadedBytes = 0;
-
-      response.on('data', chunk => {
-        downloadedBytes += chunk.length;
-        hash.update(chunk);
-        const progress = Math.round((downloadedBytes / totalBytes) * 100);
-        try { 
-           event.sender.send(`to_download`, {fn:'progress' , download_id: downloadId , msg:progress });
+// Plain file download (md5-checked by AssetsManager). Success carries the md5 of the downloaded bytes.
+ipcMain.on('download-file', async (event, url, dest, downloadId) => {
+    const fs = require('fs');
+    const send = (fn, msg) => {
+        try {
+            event.sender.send(`to_download`, {fn: fn , download_id: downloadId , msg: msg });
         } catch (err) {
             console.log(err)
         }
-        
-      });
+    }
 
-      response.pipe(file);
+    const hash = require('crypto').createHash('md5');
+    // 20s without any data aborts, like request's timeout (a whole-download timeout would kill big files)
+    const ctrl = new AbortController();
+    let timer;
+    const kick = () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => ctrl.abort(new Error("download timed out")), 20000);
+    }
 
-    })
-    .on('error', err => {
-      fs.unlink(dest, () => {});
-
-        try {
-           event.sender.send(`to_download`, {fn:'error' , download_id: downloadId , msg:err.message  });
-        } catch (err) {
-           console.log(err)
-        }
-        
-      
-    })
-    .on('end', () => {
-
-        const hashValue = hash.digest('hex');
-        
-        try {
-           event.sender.send(`to_download`, {fn:'success' , download_id: downloadId , msg: hashValue  });
-        } catch (err) {
-           console.log(err)
-        }
-        
-    });
+    try {
+        kick();
+        // net.fetch, not Node's fetch: Node 24's undici throws an uncaught assert(!this.paused) when a connection-close
+        // server ends the socket while the file write is applying backpressure, which pops a main-process error dialog
+        const res = await net.fetch(url, { signal: ctrl.signal }); // follows redirects
+        if (!res.ok)
+            throw new Error(`download failed (HTTP ${res.status})`);
+        const totalBytes = parseInt(res.headers.get('content-length'), 10);
+        let downloadedBytes = 0;
+        await require('stream/promises').pipeline(res.body, async function* (chunks) {
+            for await (const chunk of chunks) {
+                kick();
+                downloadedBytes += chunk.length;
+                hash.update(chunk);
+                send('progress', Math.round((downloadedBytes / totalBytes) * 100));
+                yield chunk;
+            }
+        }, fs.createWriteStream(dest));
+        send('success', hash.digest('hex'));
+    } catch (err) {
+        fs.unlink(dest, () => {});
+        send('error', err.message);
+    } finally {
+        clearTimeout(timer);
+    }
 });
 
 

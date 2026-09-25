@@ -25,6 +25,16 @@ function simple_hash( strr ) {
 }
 
 
+// Local image path -> dbimg:// url, served by the main process (background.js) since the renderer can't load file://.
+// Takes raw paths and the legacy "file://" strings older history entries may hold; web/data urls pass through.
+function local_img_url(p) {
+    if (!p || /^(https?|data|blob|dbimg):/.test(p))
+        return p;
+    // "?" was never part of the file name (the old file:// urls treated it as a query)
+    return "dbimg://local" + p.replace(/^file:\/\//, "").split("?")[0].split("/").map(encodeURIComponent).join("/");
+}
+
+
 function resolve_asset_illustration(name) {
     let pre_assets_list_svg = [
       ];
@@ -37,7 +47,7 @@ function resolve_asset_illustration(name) {
     else if (name.startsWith("https://") || name.startsWith("http://"))
         return name;
     else
-        return "file://" + name;
+        return local_img_url(name);
 }
 
 
@@ -92,7 +102,7 @@ function open_popup( img_url , text ){
     let html = '<html><head>'+css+'</head><body>' ;
 
     if (img_url)
-        html += '<img src="'+escapeHtml(img_url)+'"> ';
+        html += '<img src="'+escapeHtml(local_img_url(img_url))+'"> ';
     
     if( text )
          html += '<p> '+ escapeHtml(text) +' </p>';
@@ -270,4 +280,4 @@ function migrate_history_only_once( current_new_history ){
 }
 
 
-export { compute_n_cols , compute_time_remaining , resolve_asset_illustration , simple_hash , open_popup, form_params_to_text, find_in_form_recursive, form_params_to_readable_dict, migrate_history_only_once}
+export { compute_n_cols , compute_time_remaining , resolve_asset_illustration , local_img_url , simple_hash , open_popup, form_params_to_text, find_in_form_recursive, form_params_to_readable_dict, migrate_history_only_once}

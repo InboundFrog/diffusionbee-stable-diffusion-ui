@@ -20,7 +20,9 @@ let win;
 
 // Scheme must be registered before the app is ready
 protocol.registerSchemesAsPrivileged([
-	{ scheme: 'app', privileges: { secure: true, standard: true, supportFetchAPI: true } }
+	{ scheme: 'app', privileges: { secure: true, standard: true, supportFetchAPI: true } },
+	// local images for the renderer (see register_img_protocol). corsEnabled: ImageCanvas draws them into a canvas.
+	{ scheme: 'dbimg', privileges: { secure: true, standard: true, supportFetchAPI: true, corsEnabled: true } },
 ])
 
 
@@ -54,9 +56,6 @@ async function createWindow() {
 		maximizable : false,
 		trafficLightPosition: { x: 18, y: 20 },
 		webPreferences: {
-			// ponytail: renderer shows local generated images via file:// URLs, which needs webSecurity off;
-			// serve them through a custom protocol to drop this.
-			webSecurity: false,
 			nodeIntegration: false,
 			contextIsolation: true,
 			sandbox: true,
@@ -93,8 +92,8 @@ async function createWindow() {
 	win.webContents.setWindowOpenHandler(({ url, features }) => {
 		if (url.startsWith('data:')) {
 			// Chromium blocks renderer-initiated data: navigations, so the main process opens it.
-			// No preload; webSecurity off only so the page can show the file:// image.
-			new BrowserWindow({ x: 100, y: 100, frame: !features.includes('frame=false'), webPreferences: { webSecurity: false, sandbox: true } }).loadURL(url);
+			// No preload; the image comes from dbimg://.
+			new BrowserWindow({ x: 100, y: 100, frame: !features.includes('frame=false'), webPreferences: { sandbox: true } }).loadURL(url);
 			return { action: 'deny' };
 		}
 		if (is_web_url(url))
@@ -139,6 +138,31 @@ function register_app_protocol() {
 }
 
 
+// Local images (generated, input, upscaled) as dbimg://local/<url-encoded absolute path>, built by utils.local_img_url.
+// Only image files under the home dir, /tmp or /Volumes (inpainting + upscaler temp files), checked after resolving symlinks.
+const IMG_EXTS = ['.png', '.jpg', '.jpeg', '.webp']
+function register_img_protocol() {
+	const fs = require('fs')
+	const roots = [require('os').homedir(), '/tmp', '/Volumes'].map(d => fs.realpathSync(d) + path.sep)
+	protocol.handle('dbimg', async (req) => {
+		try {
+			const file = await fs.promises.realpath(decodeURIComponent(new URL(req.url).pathname))
+			const ext = path.extname(file).toLowerCase()
+			if (IMG_EXTS.includes(ext) && roots.some(r => file.startsWith(r))) {
+				const img = await net.fetch(pathToFileURL(file).toString())
+				return new Response(img.body, { headers: {
+					'content-type': 'image/' + ext.slice(1).replace('jpg', 'jpeg'),
+					'access-control-allow-origin': '*', // crossOrigin=anonymous loads (ImageCanvas draws into a canvas)
+				} })
+			}
+		} catch (err) {
+			// missing file etc: same 404 as a rejected path
+		}
+		return new Response('Not found', { status: 404 })
+	})
+}
+
+
 app.on('activate', () => {
 	// On macOS it's common to re-create a window in the app when the
 	// dock icon is clicked and there are no other windows open.
@@ -154,6 +178,7 @@ app.on('activate', () => {
 app.on('ready', async () => {
 	if (!process.env.WEBPACK_DEV_SERVER_URL)
 		register_app_protocol();
+	register_img_protocol();
 	createWindow();
 
 	bind_window_bridge(win);

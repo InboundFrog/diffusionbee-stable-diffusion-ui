@@ -48,7 +48,7 @@
 
                     
                     <p class="history_box_info " style="user-select: text;">
-                        <img  v-for=" img in get_inp_imgs_from_group(group)" :src="'file://' +img" :key="img" style="height:50px">
+                        <img  v-for=" img in get_inp_imgs_from_group(group)" :src="local_img_url(img)" :key="img" style="height:50px">
                         <br  v-if="get_inp_imgs_from_group(group).length > 0 " >
                         <br  v-if="get_inp_imgs_from_group(group).length > 0 " >
                   
@@ -85,7 +85,7 @@
 import {native_confirm} from "../native_functions_vue_bridge.js";
 import GalleryPane from "../components_bare/GalleryPane.vue"
 import {image_manu_functions} from "../components/image_menu_functions.js"
-import {open_popup , form_params_to_text , migrate_history_only_once} from "../utils"
+import {open_popup , form_params_to_text , migrate_history_only_once, local_img_url} from "../utils"
 
 import Vue from 'vue'
 import Fuse from 'fuse.js'
@@ -168,6 +168,7 @@ const History =  {
 
 
     methods: {
+        local_img_url,
 
 
         get_inp_imgs_from_group(group){
@@ -198,7 +199,7 @@ const History =  {
         },
 
         on_image_click(image_item_data){
-            open_popup('file://' + image_item_data.image_url)
+            open_popup(image_item_data.image_url)
         },
 
         delete_hist(k){

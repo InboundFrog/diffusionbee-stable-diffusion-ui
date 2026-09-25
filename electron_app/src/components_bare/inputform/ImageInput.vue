@@ -70,7 +70,7 @@ export default {
            
             if(!e.dataTransfer.files[0].type.startsWith('image/'))
                 return;
-            let img_path = e.dataTransfer.files[0].path;
+            let img_path = window.get_path_for_file(e.dataTransfer.files[0]);
             if(img_path && img_path != 'NULL'){
                 Vue.set(this.form_values , this.config.id , img_path)
                 this.is_inpaint = false;

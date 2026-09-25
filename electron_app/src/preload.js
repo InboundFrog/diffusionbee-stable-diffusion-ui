@@ -1,7 +1,7 @@
 // src/preload.js
 // Runs sandboxed with contextIsolation: only plain functions/data cross the bridge.
 
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 // Narrow shim with the same call signatures the renderer already uses.
 // (Exposing the ipcRenderer object itself no longer works over contextBridge.)
@@ -16,6 +16,9 @@ contextBridge.exposeInMainWorld('ipcRenderer', {
         return () => ipcRenderer.removeListener(channel, listener)
     },
 })
+
+// filesystem path of a dropped File (File.path is gone since Electron 32)
+contextBridge.exposeInMainWorld('get_path_for_file', (file) => webUtils.getPathForFile(file))
 
 var bind_ipc_renderer_on_fn = undefined;
 var bind_ipc_download_on_fns = {}

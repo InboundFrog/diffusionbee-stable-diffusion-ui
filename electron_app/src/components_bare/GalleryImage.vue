@@ -9,7 +9,7 @@
 
             <div style="height: 100%; width: 100%;   " v-else>
 
-                <img class="aux_img" v-if="aux_img_url" :src="'file://' + aux_img_url"  style="position:absolute; opacity:0.8; top:0 ; left:0; width:30% ; height:30%; object-fit: cover;   ">
+                <img class="aux_img" v-if="aux_img_url" :src="local_img_url(aux_img_url)"  style="position:absolute; opacity:0.8; top:0 ; left:0; width:30% ; height:30%; object-fit: cover;   ">
                 
                 <div v-if="description && image_url" @click="on_image_click(self)" class="gall_top_right_btn_container " style="position:absolute; bottom:5px ; left:5px ; right:0px; padding:20px; background: linear-gradient(to top, rgba(0,0,0,1), rgba(0,0,0,0)); color:white ; font-size: 12px;margin-right: 5px ; padding-top:20px">
                     {{description}}
@@ -36,7 +36,7 @@
                 
 
                 
-                <img @click="on_image_click(self)" v-if="image_url"   style="  width:100% ; height:100%; object-fit: cover;  object-position:0px 0px; " :src=" 'file://' + image_url">
+                <img @click="on_image_click(self)" v-if="image_url"   style="  width:100% ; height:100%; object-fit: cover;  object-position:0px 0px; " :src="local_img_url(image_url)">
                 <img  v-bind:class="{ 'animate-flicker': (done_percentage == undefined) }" class="animate-flicker"   v-else :width="img_w" :height="img_h"  style="width:100% ; height:100%;   object-position:0px 0px;  border-style: solid ; border-color: var(--border-color-invert); border-width: 1px;   " src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==">
 
 
@@ -54,6 +54,7 @@
 <script>
 
 import CircleProgress from "./CircleProgress.vue"
+import { local_img_url } from "../utils.js"
 
 
 export default {
@@ -80,7 +81,7 @@ export default {
         };
     },
     methods: {
-
+        local_img_url,
     },
 }
 </script>

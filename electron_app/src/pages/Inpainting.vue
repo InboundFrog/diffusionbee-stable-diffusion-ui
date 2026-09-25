@@ -285,7 +285,7 @@ const Inpainting = {
                 return;
             if (!e.dataTransfer.files[0].type.startsWith('image/'))
                 return;
-            let img_path = e.dataTransfer.files[0].path;
+            let img_path = window.get_path_for_file(e.dataTransfer.files[0]);
             this.set_inp_image(img_path)
         },
 

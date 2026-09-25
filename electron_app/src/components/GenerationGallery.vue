@@ -73,7 +73,7 @@ export default {
         },
 
         on_image_click(image_item_data){
-            open_popup('file://' + image_item_data.image_url)
+            open_popup(image_item_data.image_url)
         },
 
         add_group(group){

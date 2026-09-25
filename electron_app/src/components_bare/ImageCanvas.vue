@@ -1,6 +1,6 @@
 <template>
     <div style="height:100% ; width:100%; position:  relative;">
-        <img  @load="on_img_load2" :id="canvas_d_id+'img'" :src="'file://'+image_source" style="display:none">
+        <img  @load="on_img_load2" :id="canvas_d_id+'img'" :src="local_img_url(image_source)" style="display:none">
         <canvas :id="canvas_d_id" style="width:100% ; height:100%; position: absolute ; top:0 , left:0  " ></canvas>
         <canvas :id="canvas_id" style="width:100% ; height:100%; position: absolute ; top:0 , left:0 ; opacity:0.7" ></canvas>
        
@@ -8,10 +8,12 @@
 </template>
 <script>
 import Vue from 'vue'
+import { local_img_url } from "../utils.js"
 
 function addImageProcess(src){
   return new Promise((resolve, reject) => {
     let img = new Image()
+    img.crossOrigin = 'anonymous' // dbimg:// is another origin: without CORS the canvas is tainted and toDataURL throws
     img.onload = () => resolve(img)
     img.onerror = reject
     img.src = src
@@ -82,6 +84,7 @@ export default {
         };
     },
     methods: {
+        local_img_url,
 
         on_img_load2(){
             if(this.on_img_load)
@@ -205,7 +208,7 @@ export default {
         },
         on_img_change(){
             let that = this;
-            addImageProcess('file://'+this.image_source).then(function(img_tag){
+            addImageProcess(local_img_url(this.image_source)).then(function(img_tag){
 
                 that.img_tag = img_tag;
                 let canvasD = document.getElementById(that.canvas_d_id);

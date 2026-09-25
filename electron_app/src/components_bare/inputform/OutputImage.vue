@@ -2,7 +2,7 @@
     <div> 
         <div class="options_input" style="width: 100%;">
          
-            <img :src="'file://'+config.img_path" style="max-width: 100%;"> 
+            <img :src="local_img_url(config.img_path)" style="max-width: 100%;"> 
             <div v-if="config.is_save" @click="save_image" class="l_button" > Save </div>
         
         </div>
@@ -14,6 +14,7 @@
 
 import FormInputMixin from "./FormInputMixin.vue"
 import { icon_library } from "../icon_library.js"
+import { local_img_url } from "../../utils.js"
 
 
 export default {
@@ -33,6 +34,7 @@ export default {
         };
     },
     methods: {
+        local_img_url,
 
         save_image(){
 
