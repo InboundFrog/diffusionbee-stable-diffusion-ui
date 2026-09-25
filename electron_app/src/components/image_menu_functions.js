@@ -73,8 +73,8 @@ image_manu_functions['copy_params'] =  function (app, image_item_data){
 	app;
 	image_item_data;
 	const remove_keys = ['generated_img', 'done_percentage', 'prompt_tokens' , 
-	'job_state', 'job_id', "raw_form_options" ,  'negative_prompt_tokens' ,"input_image_with_mask" , "model_tdict_path" ,
-	"controlnet_tdict_path" , "controlnet_inp_img_preprocesser_model_path" , "aux_output_img" ]
+	'job_state', 'job_id', "raw_form_options" ,  'negative_prompt_tokens' ,"input_image_with_mask" , "model_path" ,
+	"inpaint_model_path" , "controlnet_path" , "lora_paths" , "controlnet_inp_img_preprocesser_model_path" , "aux_output_img" ]
 	let image_params = JSON.parse(JSON.stringify(image_item_data.params))
 	for(let k of remove_keys)
 		image_params[k] = undefined;

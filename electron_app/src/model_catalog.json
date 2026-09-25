@@ -1,0 +1,159 @@
+{
+    "families": {
+        "sd15":      { "default_steps": 25, "default_guidance": 7.5, "default_size": 512,  "supports_negative_prompt": true,  "supports_img2img": true, "supports_inpaint": true,  "supports_controlnet": true },
+        "sdxl":      { "default_steps": 30, "default_guidance": 6,   "default_size": 1024, "supports_negative_prompt": true,  "supports_img2img": true, "supports_inpaint": true,  "supports_controlnet": true },
+        "sd3":       { "default_steps": 28, "default_guidance": 4.5, "default_size": 1024, "supports_negative_prompt": true,  "supports_img2img": true, "supports_inpaint": true,  "supports_controlnet": false },
+        "flux":      { "default_steps": 28, "default_guidance": 3.5, "default_size": 1024, "supports_negative_prompt": false, "supports_img2img": true, "supports_inpaint": true,  "supports_controlnet": false },
+        "flux2":     { "default_steps": 4,  "default_guidance": 1,   "default_size": 1024, "supports_negative_prompt": false, "supports_img2img": true, "supports_inpaint": false, "supports_controlnet": false },
+        "zimage":    { "default_steps": 8,  "default_guidance": 0,   "default_size": 1024, "supports_negative_prompt": false, "supports_img2img": true, "supports_inpaint": false, "supports_controlnet": false },
+        "qwenimage": { "default_steps": 30, "default_guidance": 4,   "default_size": 1328, "supports_negative_prompt": true,  "supports_img2img": true, "supports_inpaint": false, "supports_controlnet": false }
+    },
+    "models": [
+        {
+            "id": "Z-Image-Turbo",
+            "title": "Z-Image Turbo",
+            "description": "Fast 8-step photorealistic model with good text rendering. Default model.",
+            "hf_repo": "Tongyi-MAI/Z-Image-Turbo",
+            "size_gb": 32.8,
+            "min_ram_gb": 24,
+            "model_meta_data": { "type": "sd_model", "family": "zimage" }
+        },
+        {
+            "id": "FLUX.2-klein-4B",
+            "title": "FLUX.2 klein 4B",
+            "description": "Compact FLUX.2 model. 4-step generation and reference-image editing.",
+            "hf_repo": "black-forest-labs/FLUX.2-klein-4B",
+            "size_gb": 16.0,
+            "min_ram_gb": 16,
+            "model_meta_data": { "type": "sd_model", "family": "flux2" }
+        },
+        {
+            "id": "SDXL-1.0",
+            "title": "Stable Diffusion XL 1.0",
+            "description": "SDXL base model, 1024px. Supports img2img and inpainting.",
+            "hf_repo": "stabilityai/stable-diffusion-xl-base-1.0",
+            "variant": "fp16",
+            "size_gb": 6.9,
+            "min_ram_gb": 16,
+            "model_meta_data": { "type": "sd_model", "family": "sdxl" }
+        },
+        {
+            "id": "SD-1.5",
+            "title": "Stable Diffusion 1.5",
+            "description": "Classic 512px model. Lowest RAM use, supports ControlNet and inpainting.",
+            "hf_repo": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+            "variant": "fp16",
+            "size_gb": 2.7,
+            "min_ram_gb": 8,
+            "model_meta_data": { "type": "sd_model", "family": "sd15" }
+        },
+        {
+            "id": "FLUX.1-schnell",
+            "title": "FLUX.1 schnell",
+            "description": "12B FLUX.1 model distilled for 4-step generation.",
+            "hf_repo": "black-forest-labs/FLUX.1-schnell",
+            "size_gb": 33.7,
+            "min_ram_gb": 32,
+            "requires_hf_token": true,
+            "model_meta_data": { "type": "sd_model", "family": "flux", "default_steps": 4, "default_guidance": 0 }
+        },
+        {
+            "id": "SD-3.5-Medium",
+            "title": "Stable Diffusion 3.5 Medium",
+            "description": "Stability AI SD 3.5 Medium, 1024px.",
+            "hf_repo": "stabilityai/stable-diffusion-3.5-medium",
+            "size_gb": 16.3,
+            "min_ram_gb": 16,
+            "requires_hf_token": true,
+            "model_meta_data": { "type": "sd_model", "family": "sd3" }
+        },
+        {
+            "id": "Qwen-Image-2.1",
+            "title": "Qwen-Image 2.1",
+            "description": "Large model with strong prompt following and text rendering, 1328px.",
+            "hf_repo": "Qwen/Qwen-Image-2.1",
+            "size_gb": 33.1,
+            "min_ram_gb": 32,
+            "model_meta_data": { "type": "sd_model", "family": "qwenimage" }
+        },
+        {
+            "id": "SD-1.5-Inpainting",
+            "title": "SD 1.5 Inpainting",
+            "description": "Dedicated SD 1.5 inpainting model.",
+            "hf_repo": "stable-diffusion-v1-5/stable-diffusion-inpainting",
+            "variant": "fp16",
+            "size_gb": 2.7,
+            "min_ram_gb": 8,
+            "model_meta_data": { "type": "inpaint_model", "family": "sd15" }
+        },
+        {
+            "id": "SDXL-1.0-Inpainting",
+            "title": "SDXL 1.0 Inpainting",
+            "description": "Dedicated SDXL inpainting model.",
+            "hf_repo": "diffusers/stable-diffusion-xl-1.0-inpainting-0.1",
+            "variant": "fp16",
+            "size_gb": 6.9,
+            "min_ram_gb": 16,
+            "model_meta_data": { "type": "inpaint_model", "family": "sdxl" }
+        },
+        {
+            "id": "ControlNet-SD1.5-Depth",
+            "title": "ControlNet Depth (SD 1.5)",
+            "description": "ControlNet Depth. Works with MiDaS depth.",
+            "hf_repo": "lllyasviel/control_v11f1p_sd15_depth",
+            "variant": "fp16",
+            "size_gb": 0.7,
+            "min_ram_gb": 8,
+            "model_meta_data": { "type": "controlnet", "family": "sd15", "controlnet_mode": "Depth" }
+        },
+        {
+            "id": "ControlNet-SD1.5-OpenPose",
+            "title": "ControlNet Body Pose (SD 1.5)",
+            "description": "ControlNet body pose. Works with OpenPose poses.",
+            "hf_repo": "lllyasviel/control_v11p_sd15_openpose",
+            "variant": "fp16",
+            "size_gb": 0.7,
+            "min_ram_gb": 8,
+            "model_meta_data": { "type": "controlnet", "family": "sd15", "controlnet_mode": "BodyPose" }
+        },
+        {
+            "id": "ControlNet-SD1.5-LineArt",
+            "title": "ControlNet LineArt (SD 1.5)",
+            "description": "ControlNet LineArt.",
+            "hf_repo": "lllyasviel/control_v11p_sd15_lineart",
+            "variant": "fp16",
+            "size_gb": 0.7,
+            "min_ram_gb": 8,
+            "model_meta_data": { "type": "controlnet", "family": "sd15", "controlnet_mode": "LineArt" }
+        },
+        {
+            "id": "ControlNet-SD1.5-Scribble",
+            "title": "ControlNet Scribble (SD 1.5)",
+            "description": "ControlNet Scribble.",
+            "hf_repo": "lllyasviel/control_v11p_sd15_scribble",
+            "variant": "fp16",
+            "size_gb": 0.7,
+            "min_ram_gb": 8,
+            "model_meta_data": { "type": "controlnet", "family": "sd15", "controlnet_mode": "Scribble" }
+        },
+        {
+            "id": "ControlNet-SD1.5-Tile",
+            "title": "ControlNet Tile (SD 1.5)",
+            "description": "ControlNet Tile. Only published as a PyTorch .bin file.",
+            "hf_repo": "lllyasviel/control_v11f1e_sd15_tile",
+            "size_gb": 1.4,
+            "min_ram_gb": 8,
+            "model_meta_data": { "type": "controlnet", "family": "sd15", "controlnet_mode": "Tile" }
+        },
+        {
+            "id": "ControlNet-SD1.5-Inpaint",
+            "title": "ControlNet Inpaint (SD 1.5)",
+            "description": "ControlNet Inpaint, used for Generative Fill with regular SD 1.5 models.",
+            "hf_repo": "lllyasviel/control_v11p_sd15_inpaint",
+            "variant": "fp16",
+            "size_gb": 0.7,
+            "min_ram_gb": 8,
+            "model_meta_data": { "type": "controlnet", "family": "sd15", "controlnet_mode": "Inpaint" }
+        }
+    ]
+}

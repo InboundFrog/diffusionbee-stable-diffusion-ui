@@ -19,7 +19,7 @@
             <div class="model_dialog" v-if="to_download_left.length > 0 ">
                 <h2> You need to download the following models to generate: </h2>
                 <br>
-                <p>{{to_download_left[0].title}}</p> <DownloadButton :app=app  :asset_details="to_download_left[0]"> </DownloadButton>
+                <p>{{to_download_left[0].title}} <span v-if="to_download_left[0].size_gb">({{to_download_left[0].size_gb}} GB)</span></p> <DownloadButton :app=app  :asset_details="to_download_left[0]"> </DownloadButton>
             </div>
 
             <slot name="output_workpace"></slot>
@@ -34,6 +34,40 @@ import TwoColAppletLayout from "../components_bare/TwoColAppletLayout.vue"
 import DownloadButton from "./DownloadButton.vue"
 import Vue from 'vue'
 import {find_in_form_recursive} from "../utils.js"
+
+// drop form elements by id. Containers left without children are dropped too.
+function drop_form_fields(form, ids){
+    return form.filter(el => {
+        if(ids.includes(el.id))
+            return false
+        if(!el.children || el.children.length == 0)
+            return true
+        el.children = drop_form_fields(el.children, ids)
+        return el.children.length > 0
+    })
+}
+
+function for_each_form_field(form, id, fn){
+    for(let el of form){
+        if(el.id == id)
+            fn(el)
+        if(el.children)
+            for_each_form_field(el.children, id, fn)
+    }
+}
+
+// multiples of 64 around the family's native resolution (512 -> 256..896)
+function size_options(default_size){
+    let sizes = []
+    for(let s = 64*Math.ceil(default_size/128); s <= default_size*1.75; s += 64)
+        sizes.push(s)
+    if(!sizes.includes(default_size))
+        sizes.push(default_size)
+    return sizes.sort((a, b) => a - b)
+}
+
+// which capability a page needs from the model
+const PAGE_CAPABILITY = {img2img: 'supports_img2img', inpainting: 'supports_inpaint'}
 
 function prep_sd_options(options){
     options = JSON.parse(JSON.stringify(options))
@@ -111,20 +145,20 @@ export default {
 
             options.applet_name = this.name
 
-            // map the selected avail model to the tdict
+            let am = this.app.assets_manager
             if(options.selected_sd_model){
-                options.model_tdict_path = this.app.assets_manager.get_downloaded_asset_path(options.selected_sd_model)
-
-                let asset = this.app.assets_manager.get_downloaded_asset(options.selected_sd_model)
-                let asset_metadata = (asset||{}).model_meta_data
-                if(asset_metadata && asset_metadata.do_v_prediction){
-                    options.do_v_prediction = true 
-                }
-
-                if(asset_metadata && asset_metadata.trigger_word && options.prompt && !(options.prompt.includes(asset_metadata.trigger_word)) ){
-                    options.prompt = asset_metadata.trigger_word + " " + options.prompt
-                }
+                let meta = am.model_meta(options.selected_sd_model) || {}
+                options.model_path = am.get_downloaded_asset_path(options.selected_sd_model)
+                options.model_family = meta.family
+                if(meta.type == 'inpaint_model')
+                    options.inpaint_model_path = options.model_path
+                // hidden (basic mode, or CFG-free family): use the family default
+                if(options.guidance_scale === undefined)
+                    options.guidance_scale = meta.default_guidance
             }
+
+            if(options.selected_lora && options.selected_lora != "None")
+                options.lora_paths = [am.get_downloaded_asset_path(options.selected_lora)]
 
             // if possible get the input image masks and stuff
             if(options.input_img){
@@ -176,19 +210,34 @@ export default {
             return l
         } , 
 
+        selected_model_meta(){
+            return this.app.assets_manager.model_meta(this.sd_options.selected_sd_model) || {}
+        },
+
         input_form_elements_processed(){
             let form = JSON.parse(JSON.stringify(this.input_form))
-            
+            let am = this.app.assets_manager
+            let meta = this.selected_model_meta
 
-            // add the avail models to the form
+            // add the avail models that can do what this page needs
             let el = find_in_form_recursive( "selected_sd_model" , form)
             if(el){
-                let assets = Object.values(this.app.assets_manager.all_avail_assets)
-                assets = assets.filter(x => x.model_meta_data && (this.model_options_types ||["sd_model"]).includes(x.model_meta_data.type))
-                let new_ids = assets.map(x => x.id)
-                for( let idd of new_ids){
-                    if(!el['options'].includes(idd))
-                        el['options'].push(idd)
+                let types = this.model_options_types || ["sd_model"]
+                let capability = PAGE_CAPABILITY[this.name]
+                for(let id in am.all_avail_assets){
+                    let m = am.model_meta(id)
+                    if(m && types.includes(m.type) && (!capability || m[capability]) && !el.options.includes(id))
+                        el.options.push(id)
+                }
+            }
+
+            // LoRAs made for the selected model family
+            let lora_el = find_in_form_recursive( "selected_lora" , form)
+            if(lora_el){
+                for(let id in am.all_avail_assets){
+                    let m = am.model_meta(id) || {}
+                    if(m.type == 'lora' && (!m.family || m.family == meta.family))
+                        lora_el.options.push(id)
                 }
             }
 
@@ -199,71 +248,40 @@ export default {
                 el.request_objects_from_element_fn = this.request_ojects_from_img_element
             }
 
-            // for SDXL make sure that we only allow certain schedulers ( disabled for now )
-            // if(this.sd_options && this.sd_options.selected_sd_model){
-            //     let selected_asset =  this.app.assets_manager.all_avail_assets[this.sd_options.selected_sd_model  ]
-            //     if(selected_asset &&  selected_asset.model_meta_data && selected_asset.model_meta_data.sd_type && selected_asset.model_meta_data.sd_type == "sdxl_base"  ){
-            //         let el2 = find_in_form_recursive( "scheduler" , form)
-            //         if(el2){
-            //             el2['default_value'] = "karras"
-            //             el2['options'].splice(0, el2['options'].length);
-            //             el2['options'].push("karras")
-                        
-            //         }
-            //     } 
-            // }
+            let drop = []
+            if(!lora_el || lora_el.options.length < 2)
+                drop.push("selected_lora")
 
-            // for sdxl make use different image sizes
-            if(this.sd_options && this.sd_options.selected_sd_model){
-                let selected_asset =  this.app.assets_manager.all_avail_assets[this.sd_options.selected_sd_model  ]
-                if(selected_asset &&  selected_asset.model_meta_data && selected_asset.model_meta_data.sd_type && selected_asset.model_meta_data.sd_type == "sdxl_base"  ){
-                    let el2 = find_in_form_recursive( "img_width" , form)
-                    if(el2){
-                        el2['default_value'] = 768
-                        el2['options'].splice(0, el2['options'].length);
-                        el2['options'].push(  576, 640, 704, 768, 832, 896 , 960 , 1024, 1088  , 1152 , 1216  )
-                        
-                    }
+            // model family defaults and capabilities
+            if(meta.family){
+                for_each_form_field(form, "num_steps", x => x.default_value = meta.default_steps)
+                for_each_form_field(form, "guidance_scale", x => x.default_value = meta.default_guidance)
+                for(let id of ["img_width", "img_height"]){
+                    for_each_form_field(form, id, x => {
+                        x.default_value = meta.default_size
+                        x.options = size_options(meta.default_size)
+                    })
+                }
 
-                    let el3 = find_in_form_recursive( "img_height" , form)
-                    if(el3){
-                        el3['default_value'] = 768
-                        el3['options'].splice(0, el3['options'].length);
-                        el3['options'].push(   576, 640, 704, 768, 832, 896 , 960 , 1024, 1088  , 1152 , 1216  )
-                        
-                    }
-
-                    // Vue.set(this.sd_options , 'img_width',768  )
-                    // Vue.set(this.sd_options , 'img_height',768  )
-
-                } 
+                if(!meta.supports_negative_prompt)
+                    drop.push("negative_prompt")
+                if(!meta.default_guidance) // CFG-distilled (Z-Image Turbo, FLUX.1 schnell)
+                    drop.push("guidance_scale")
+                if(meta.family != "sd15")
+                    drop.push("is_clip_skip_2")
+                if(!(meta.supports_controlnet && am.catalog.some(c => c.model_meta_data.type == 'controlnet' && c.model_meta_data.family == meta.family)))
+                    drop.push("controlnet_acc")
             }
 
-
-
-            return form;
+            return drop_form_fields(form, drop);
         },
 
         required_assets_modified(){
-            let ret = []
-            if(!this.required_assets){
-                ret = []
-            } else {
-                ret = JSON.parse(JSON.stringify(this.required_assets))
-            }
-
-            if(  this.sd_options.selected_sd_model == "Default_SD1.5"){
-                ret.push( { 
-                    id : 'Default_SD1.5' , 
-                    filename: 'sd-v1-5_fp16.tdict' ,   
-                    md5: 'a36c79b8edb4b21b75e50d5834d1f4ae' , 
-                    is_stock_model : true,
-                    url : 'https://huggingface.co/divamgupta/stable_diffusion_mps/resolve/main/sd-v1-5_fp16.tdict' , 
-                    title: "Stable Diffusion 1.5 (Default)", 
-                    model_meta_data : {"type" : "sd_model", "float_type" : "float16" ,  "sd_type" : "SD_1x" }
-                } )
-            }
-            
+            let ret = JSON.parse(JSON.stringify(this.required_assets || []))
+            // a catalog model is selected but not downloaded yet
+            let entry = this.app.assets_manager.catalog_entry(this.sd_options.selected_sd_model)
+            if(entry)
+                ret.unshift(entry)
             return ret
         },
 
@@ -277,6 +295,22 @@ export default {
                 }
             }
             return to_download
+        }
+    },
+
+    watch: {
+        // switching to a model of another family: load that family's defaults
+        'sd_options.selected_sd_model'(new_id, old_id){
+            if(old_id === undefined) // the saved form is being restored
+                return
+            let meta = this.app.assets_manager.model_meta(new_id)
+            let old_meta = this.app.assets_manager.model_meta(old_id)
+            if(!meta || (old_meta && old_meta.family == meta.family))
+                return
+            Vue.set(this.sd_options, 'num_steps', meta.default_steps)
+            Vue.set(this.sd_options, 'guidance_scale', meta.default_guidance)
+            Vue.set(this.sd_options, 'img_width', meta.default_size)
+            Vue.set(this.sd_options, 'img_height', meta.default_size)
         }
     }
 }

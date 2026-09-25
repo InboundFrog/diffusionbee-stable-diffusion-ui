@@ -10,8 +10,6 @@ var last_few_err = ""
 
 let RESTART_BACKEND_ON_CLOSE = false
 
-const path = require('path');
-
 function start_bridge() {
 
     console.log("starting bridge")
@@ -23,7 +21,7 @@ function start_bridge() {
         python = require('child_process').spawn( bin_path );
     }
     else if (fs.existsSync(script_path)) {
-        python = require('child_process').spawn('python', [script_path]);
+        python = require('child_process').spawn(process.env.PYTHON || 'python3', [script_path]);
     }
     else{
         const path = require('path');
@@ -33,6 +31,10 @@ function start_bridge() {
     
    
     python.stdin.setEncoding('utf-8');
+
+    // spawn failures (e.g. missing binary) arrive here; 'close' then reports them
+    python.on('error', (err) => { last_few_err += err.message; });
+    python.stdin.on('error', () => {}); // EPIPE after the backend died; handled by 'close'
 
     python.stdout.on('data', function(data) {
         console.log("Python response: ", data.toString('utf8'));
@@ -75,7 +77,7 @@ function start_bridge() {
              win.webContents.send('to_renderer', 'adlg ' + data.toString('utf8') );
     });
 
-    python.on('close', (code) => {
+    python.on('close', () => {
         // if( code != 0 )
         // {
         // 	dialog.showMessageBox("Backend quit unexpectedly")

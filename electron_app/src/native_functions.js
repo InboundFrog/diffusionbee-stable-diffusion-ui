@@ -58,10 +58,10 @@ ipcMain.on('file_dialog', (event, arg) => {
         properties = ['openFile' ]
         options = { filters :[ {name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'bmp']}] , properties: properties } ;
     }
-    else if(arg == 'weights_file') // single image file 
+    else if(arg == 'weights_file') // a .safetensors model / LoRA, or a diffusers model folder. No .ckpt: pickle is unsafe
     {
-        properties = ['openFile' ]
-        options = { filters :[ {name: 'Checkpoints', extensions: ['ckpt' , 'safetensors' ]}] , properties: properties } ;
+        properties = ['openFile', 'openDirectory' ]
+        options = { filters :[ {name: 'Models', extensions: ['safetensors' ]}] , properties: properties } ;
     }
     else if(arg == 'img_files') // multi image files
     {
@@ -124,9 +124,8 @@ ipcMain.on('file_dialog', (event, arg) => {
 
 
 ipcMain.on('open_url', (event, url) => {
-    let website_domain = require('../package.json').website ; 
-    url = url.replace("__domain__" , website_domain );
-    require('electron').shell.openExternal(url);
+    if (/^https?:\/\//i.test(url)) // only web links go to the system browser
+        require('electron').shell.openExternal(url);
     event.returnValue = '';
 })
 
@@ -474,82 +473,123 @@ function run_realesrgan(input_path , cb ){
 
 
 
-function add_custom_pytorch_models(pytorch_model_path, model_name, convert_params , cb ){
-    
-    const path = require('path');
+// One-shot backend subcommands (download_model, inspect_model). Same dev/prod switch as the main backend:
+// dev runs the python script (with backends/.venv python when present), prod the bundled binary.
+function spawn_backend_cmd(args, env){
     const fs = require('fs');
-    const homedir = require('os').homedir();
-    let models_path = path.join(homedir , ".diffusionbee" , "imported_models");
-
-    if (!fs.existsSync(models_path)){
-        fs.mkdirSync(models_path, { recursive: true });
-    }
-
-
-    let script_path = process.env.PY_SCRIPT || "../backends/stable_diffusion/diffusionbee_backend.py"; 
-    
-    let out_path =  path.join(homedir , ".diffusionbee" , "imported_models" , model_name+".tdict" );
-    let proc;
+    let script_path = process.env.PY_SCRIPT || "../backends/stable_diffusion/diffusionbee_backend.py";
     if (fs.existsSync(script_path)) {
-        proc = require('child_process').spawn( "python3"  , [ script_path ,  "convert_model" ,  pytorch_model_path , out_path ]);
-    } else {
-        let bin_path =  path.join(path.dirname(__dirname), 'core' , 'diffusionbee_backend' );
-        proc = require('child_process').spawn( bin_path  , [ "convert_model" ,  pytorch_model_path , out_path ]);
+        let venv_python = path.join(path.dirname(script_path), "..", ".venv", "bin", "python");
+        return require('child_process').spawn( fs.existsSync(venv_python) ? venv_python : "python3" , [ script_path ].concat(args) , { env: env || process.env });
     }
-    
+    let bin_path =  path.join(path.dirname(__dirname), 'core' , 'diffusionbee_backend' );
+    return require('child_process').spawn( bin_path , args , { env: env || process.env });
+}
 
-    
-    let errors = ""
-    let std_out_all = ""
-
-    proc.stderr.on('data', (data) => {
-        console.error(`sr stderr: ${data}`);
-        errors += data
-    });
-
-    proc.stdout.on('data', (data) => {
-        console.error(`sr sdtout: ${data}`);
-        std_out_all += data
-    });
-
-    proc.on('close', (code) => {
-
-        if(convert_params.delete_origional_always){
-            try{
-                fs.unlinkSync(pytorch_model_path);
-            } catch {}
-        }
-
-        if(code != 0){
-            cb({success:false , error:errors  })
-            try{
-                fs.unlinkSync(out_path);
-            } catch {}
-        }
-        else{
-            if(convert_params.delete_origional_on_success){
-                try{
-                    fs.unlinkSync(pytorch_model_path);
-                } catch {}
-            }
-
-            let converted_model_data = {}
-            for(let l of std_out_all.split("\n")){
-                if(l.includes("__converted_model_data__")){
-                    converted_model_data = JSON.parse(l.replace( "__converted_model_data__", "") )
-                }
-            }
-
-            cb({success:true, model_path:out_path , metadata : converted_model_data })
-        }
-       
-    });
+// the backend's error is its last stderr line
+function last_line(text){
+    return text.split("\n").map(l => l.trim()).filter(l => l).pop() || ""
 }
 
 
-ipcMain.handle('add_custom_pytorch_models', async (event, pytorch_model_path, model_name, convert_params ) => {
-    const result = await new Promise(resolve => add_custom_pytorch_models( pytorch_model_path, model_name , convert_params , resolve));
-    return result
+// Download a HF repo into the HF cache. Progress and result go over the same `to_download` channel as download-file,
+// success carries the local snapshot folder.
+ipcMain.on('download_hf_model', (event, repo_id, variant, downloadId) => {
+    const send = (fn, msg) => {
+        try {
+            event.sender.send(`to_download`, {fn: fn , download_id: downloadId , msg: msg });
+        } catch (err) {
+            console.log(err)
+        }
+    }
+
+    let env = Object.assign({}, process.env);
+    let hf_token = (load_data("app_data_2.json").settings || {}).hf_token;
+    if (hf_token)
+        env.HF_TOKEN = hf_token;
+
+    let proc = spawn_backend_cmd( ["download_model", repo_id].concat(variant ? ["--variant", variant] : []) , env );
+    let snapshot_dir = "";
+    let errors = "";
+    let finished = false;
+
+    require('readline').createInterface({ input: proc.stdout }).on('line', (line) => {
+        if (line.startsWith("progress "))
+            send('progress', Math.round(Number(line.slice(9))) || 0);
+        else if (line.startsWith("done "))
+            snapshot_dir = line.slice(5).trim();
+    });
+
+    proc.stderr.on('data', (data) => {
+        console.error(`download_model stderr: ${data}`);
+        errors = (errors + data).slice(-5000);
+    });
+
+    proc.on('error', (err) => { // could not start the backend
+        if (finished) return;
+        finished = true;
+        send('error', err.message);
+    });
+
+    proc.on('close', (code) => {
+        if (finished) return;
+        finished = true;
+        if (code == 0 && snapshot_dir)
+            send('success', snapshot_dir);
+        else
+            send('error', last_line(errors).slice(-300) || ("download failed (exit code " + code + ")"));
+    });
+})
+
+
+// Family/type of a local .safetensors file or diffusers folder. Nothing is converted or copied.
+ipcMain.handle('inspect_model', async (event, model_path) => {
+    const fs = require('fs');
+    let is_dir;
+    try {
+        is_dir = fs.statSync(model_path).isDirectory();
+    } catch {
+        return { success: false, error: "file not found" };
+    }
+
+    let is_supported = is_dir ? (fs.existsSync(path.join(model_path, "model_index.json")) || fs.existsSync(path.join(model_path, "config.json")))
+                              : model_path.toLowerCase().endsWith(".safetensors");
+    if (!is_supported)
+        return { success: false, error: "only .safetensors files or diffusers model folders can be imported (.ckpt is not supported)" };
+
+    return await new Promise(resolve => {
+        let proc = spawn_backend_cmd(["inspect_model", model_path]);
+        let out = "";
+        let errors = "";
+        proc.stdout.on('data', (data) => { out += data });
+        proc.stderr.on('data', (data) => { errors += data });
+        proc.on('error', (err) => resolve({ success: false, error: err.message }));
+        proc.on('close', (code) => {
+            let json_line = out.split("\n").filter(l => l.trim().startsWith("{")).pop();
+            try {
+                if (code == 0 && json_line)
+                    return resolve({ success: true, info: JSON.parse(json_line) });
+            } catch (err) {
+                console.log(err)
+            }
+            resolve({ success: false, error: last_line(errors) || "could not read the model" });
+        });
+    });
+})
+
+
+// Remove a downloaded repo from the HF cache. Gets the snapshot folder: <HF_HOME>/hub/models--org--name/snapshots/<rev>
+ipcMain.on('delete_hf_model', (event, snapshot_dir) => {
+    let repo_dir = path.resolve(snapshot_dir, "..", "..");
+    let is_hf_cache_dir = path.basename(path.dirname(snapshot_dir)) == "snapshots" && path.basename(repo_dir).startsWith("models--");
+    if (is_hf_cache_dir)
+        require('fs').rmSync(repo_dir, { recursive: true, force: true });
+    event.returnValue = is_hf_cache_dir;
+})
+
+
+ipcMain.on('get_total_ram_gb', (event) => {
+    event.returnValue = Math.round(require('os').totalmem() / 2**30);
 })
 
 
@@ -563,21 +603,6 @@ ipcMain.handle('run_realesrgan', async (event, arg) => {
 //     alert(result)
 //   })
 
-
-
-ipcMain.on('list_imported_models', (event, arg) => {
-    const path = require('path');
-    const fs = require('fs');
-    const homedir = require('os').homedir();
-    let models_path = path.join(homedir , ".diffusionbee" , "imported_models");
-
-    if (!fs.existsSync(models_path)){
-        fs.mkdirSync(models_path, { recursive: true });
-    }
-
-    event.returnValue = fs.readdirSync(models_path, {withFileTypes: true}).filter(item => !item.isDirectory()).map(item => item.name).filter(item => item.endsWith('.tdict'))
-
-})
 
 
 

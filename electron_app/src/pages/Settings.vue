@@ -20,6 +20,18 @@
         </div>
         <hr>
 
+        <div class="setting_box">
+        <div class="settings_left">
+        <h3>Hugging Face token</h3>
+        <p>Needed only for gated models (FLUX.1, SD 3.5). Accept the model license on huggingface.co first, then paste a read token here.</p>
+        </div>
+
+        <div style="float:right;margin-right: 9px;align-self: center;" >
+            <input type="password" placeholder="hf_..." autocomplete="off" v-model.trim="app.app_state.app_data.settings.hf_token">
+        </div>
+        </div>
+        <hr>
+
 
     </div>
 </template>

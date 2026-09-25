@@ -42,15 +42,15 @@
         "id": "selected_sd_model_desc",
         "component": "InputWithDesc",
         "title": "Model",
-        "description": "The Stable Diffusion model used to generate images.",
+        "description": "The model used to generate images. Get more models on the Models page.",
         "children": [
             {
                 "id": "selected_sd_model",
                 "component": "Dropdown",
-                "options": ["Default_SD1.5" ],
+                "options": ["Z-Image-Turbo" ],
                 "icon": "photo",
                 "output_type" : "str",
-                "default_value" : "Default_SD1.5",
+                "default_value" : "Z-Image-Turbo",
                 "is_persistant" : true
             }
         ]
@@ -395,16 +395,18 @@
         "include_in" : ["advanced"],
         "children": [
             {
-                "id": "678545",
+                "id": "selected_lora_desc",
                 "component": "InputWithDesc",
-                "title": "V-Prediction",
-                "description": "If it should use V-Prediction. Mostly used in SD2.X 768 models. ",
+                "title": "LoRA",
+                "description": "Apply an imported LoRA. Only LoRAs made for the selected model are listed.",
                 "children": [
                     {
-                        "id": "do_v_prediction",
-                        "component": "Checkbox",
-                        "output_type" : "bool",
-                        "default_value" : false,
+                        "id": "selected_lora",
+                        "component": "Dropdown",
+                        "options": ["None"],
+                        "icon": "photo",
+                        "output_type" : "str",
+                        "default_value" : "None",
                         "is_persistant" : false
                     }
                 ]

@@ -1,9 +1,21 @@
 // src/preload.js
+// Runs sandboxed with contextIsolation: only plain functions/data cross the bridge.
 
 import { contextBridge, ipcRenderer } from 'electron'
 
-contextBridge.exposeInMainWorld('ipcRenderer', ipcRenderer)
-contextBridge.exposeInMainWorld('ipcRenderer_on', ipcRenderer.on)
+// Narrow shim with the same call signatures the renderer already uses.
+// (Exposing the ipcRenderer object itself no longer works over contextBridge.)
+contextBridge.exposeInMainWorld('ipcRenderer', {
+    send: (channel, ...args) => ipcRenderer.send(channel, ...args),
+    sendSync: (channel, ...args) => ipcRenderer.sendSync(channel, ...args),
+    invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
+    // the real IpcRendererEvent can't cross the bridge; listeners get (event-stub, ...args)
+    on: (channel, fn) => {
+        const listener = (e, ...args) => fn({ senderId: e.senderId }, ...args)
+        ipcRenderer.on(channel, listener)
+        return () => ipcRenderer.removeListener(channel, listener)
+    },
+})
 
 var bind_ipc_renderer_on_fn = undefined;
 var bind_ipc_download_on_fns = {}
@@ -21,7 +33,6 @@ ipcRenderer.on("to_renderer", (e, data) => { // the msg channel which is used fo
 
 
 function bind_ipc_download_on( download_id,  fn_progress , fn_success, fn_error ) {
-    console.log("gineded " + download_id)
     bind_ipc_download_on_fns[download_id] = {
         "progress" : fn_progress,
         "success" : fn_success,
@@ -44,7 +55,7 @@ contextBridge.exposeInMainWorld('unbind_ipc_download_on', unbind_ipc_download_on
 ipcRenderer.on("to_download", (e, data) => { // the msg channel which is used for electron to send msges to browser / download
     if(!bind_ipc_download_on_fns[data.download_id]){
         console.log("no fn di "+ data.download_id)
-        return 
+        return
     }
     if(!bind_ipc_download_on_fns[data.download_id][data.fn]){
         console.log("no fn d ")
@@ -52,4 +63,3 @@ ipcRenderer.on("to_download", (e, data) => { // the msg channel which is used fo
     }
     bind_ipc_download_on_fns[data.download_id][data.fn](data.msg)
 });
-

@@ -2,7 +2,7 @@
     <div class="main_container">
 
         <div class="l_button button_colored button_medium" style="float:right;" @click="import_model_locally"> Import From Computer </div>
-        <br><br>
+        <p style="opacity:0.6"> Import a .safetensors model or LoRA, or a diffusers model folder. </p>
         <hr>
 
         <h2 v-if="downloaded_models_list.length > 0 || is_local_model_importing"> My Models </h2>
@@ -36,23 +36,17 @@
                     <h2> {{model.title || model.id}} </h2> 
                     <p> {{model.description}} </p> 
                     <p style="zoom:0.7"> {{ model_metadata_to_str(model) }}</p>
-                    <DownloadButton v-if="!(model.min_version) || model.min_version <= app.current_build_number" :app=app  :asset_details="model"> </DownloadButton>
-                    <p  style="color:red" v-if="model.min_version && model.min_version > app.current_build_number"> You need to update DiffusionBee to use this model</p>
+                    <p v-if="model.min_ram_gb > total_ram_gb" style="color:red; zoom:0.8"> Needs {{model.min_ram_gb}} GB RAM, this Mac has {{total_ram_gb}} GB. It may be very slow. </p>
+                    <p v-if="model.requires_hf_token" style="zoom:0.8"> Gated: accept the license on <a href="#" @click.prevent="open_repo_page(model)">huggingface.co</a> and add a Hugging Face token in Settings. </p>
+                    <DownloadButton :app=app  :asset_details="model"> </DownloadButton>
                 </div> 
             </div>
 
         </div>
 
-        <br> <hr> 
-        <div @click="load_models_list_from_web" class="l_button"> Refresh </div>
-
-        
-
     </div>
 </template>
 <script>
-
-import Vue from 'vue'
 
 import DownloadButton from "../components/DownloadButton.vue"
 import MoonLoader from 'vue-spinner/src/MoonLoader.vue'
@@ -62,14 +56,12 @@ const ModelStore ={
     props: {app:Object, },
     components: {DownloadButton, MoonLoader},
     mounted() {
-        this.load_models_list_local_storage()
-        this.load_models_list_from_web()
     },
     data() {
         return {
             is_local_model_importing : false, 
             default_img_url : require("../assets/imgs/page_icon_imgs/default.png"),
-            models_list : [], 
+            total_ram_gb : window.ipcRenderer.sendSync('get_total_ram_gb'),
         };
     },
     computed: {
@@ -84,51 +76,23 @@ const ModelStore ={
             return ret;
         } , 
         not_downloaded_models_list(){
-            let that = this
-            return this.models_list.filter(model  => !(that.app.is_mounted && that.app.assets_manager.downloaded_assets[model.id]))
+            if(!this.app.is_mounted)
+                return []
+            let am = this.app.assets_manager
+            return am.catalog.filter(model  => !am.downloaded_assets[model.id])
         }
     },
     methods: {
-        load_models_list_from_web(){
-            let that = this;
-
-            let user_id = window.ipcRenderer.sendSync('get_instance_id' , '');
-            let models_url = "https://models.diffusionbee.com/list_models?user_id="+user_id;
-            
-            fetch(models_url, {cache: "no-store"})
-                .then(response => response.json())
-                .then(data =>  that.models_list = (data || that.models_list) )
-                .then(() => console.log(that.models_list))
-                .then(() =>  that.save_models_list_local_storage() )
-
-            
-        } ,     
-
-        load_models_list_local_storage(){
-            let models = window.localStorage.getItem("models_store")
-            if(models){
-                models = JSON.parse(models)
-            }
-            Vue.set(this , 'models_list' , models)
-        } , 
-
-        save_models_list_local_storage(){
-             window.localStorage.setItem('models_store' , JSON.stringify(this.models_list));
-        } , 
+        open_repo_page(model){
+            window.ipcRenderer.sendSync('open_url', "https://huggingface.co/" + model.hf_repo)
+        },
 
         model_metadata_to_str(asset_details){
-            if(!asset_details.model_meta_data)
-                return ""
-
-            let r = ""
-
-            if(asset_details.model_meta_data.sd_type)
-                r += " " + asset_details.model_meta_data.sd_type
-
-            if(asset_details.model_meta_data.float_type)
-                r += " " + asset_details.model_meta_data.float_type
-            
-            return r
+            let meta = asset_details.model_meta_data || {}
+            let r = [meta.family, meta.type && meta.type.replaceAll("_", " ")]
+            if(asset_details.size_gb)
+                r.push(asset_details.size_gb + " GB")
+            return r.filter(x => x).join(" · ")
         },
 
         import_model_locally(){
@@ -140,47 +104,30 @@ const ModelStore ={
             }
 
             let that = this;
-            //TODO maybe ask for stuff like v-prediction , ckip_slip, image_size, trigger word,  before importing
-            let pytorch_model_path = window.ipcRenderer.sendSync('file_dialog',  "weights_file" );
-            if(!pytorch_model_path)
+            let model_path = window.ipcRenderer.sendSync('file_dialog',  "weights_file" );
+            if(!model_path || model_path == "NULL")
                 return;
 
-            if(pytorch_model_path == "NULL")
-                return;
-
-            let model_name = pytorch_model_path.replaceAll("\\" , "/").split("/");
-            model_name = model_name[model_name.length - 1].split(".")[0]
-
+            let model_name = model_path.replaceAll("\\" , "/").replace(/\/+$/, "").split("/").pop().replace(/\.safetensors$/i, "")
 
             if(model_name.trim() == ""){
                 this.app.show_toast("Put non empty model name");
                 return;
             }
 
-            if(this.app.assets_manager.all_avail_assets[model_name]){
+            if(this.app.assets_manager.all_avail_assets[model_name] || this.app.assets_manager.catalog_entry(model_name)){
                 this.app.show_toast("A model with this name already exists");
                 return;
             }
 
-            let asset_details = {
-                id : model_name ,
-                filename: model_name , 
-                asset_path_raw: pytorch_model_path, 
-                post_process : "convert_sd_to_tdict", 
-                is_locally_imported : true, 
-                model_meta_data : {"type" : "sd_model" }
-            }
-
             this.is_local_model_importing = true;
 
-            this.app.assets_manager.add_local_asset(asset_details , function(result, err ){
-                if(result == "success" ){
-                    that.is_local_model_importing = false;
-                } else {
-                    that.is_local_model_importing = false;
+            // no conversion: the backend just reads the header to find the model family
+            window.ipcRenderer.invoke('inspect_model', model_path).then((result) => {
+                that.is_local_model_importing = false;
+                let err = result.success ? that.app.assets_manager.add_local_asset(model_path, model_name, result.info) : result.error
+                if(err)
                     that.app.show_toast("Error while importing " + err )
-                }
-
             })
         }
     },

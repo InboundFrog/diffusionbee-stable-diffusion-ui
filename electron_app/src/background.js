@@ -1,14 +1,11 @@
-﻿'use strict'
+'use strict'
 
 
-import { app, protocol, BrowserWindow, nativeTheme, ipcMain , Menu} from 'electron'
-import { createProtocol } from 'vue-cli-plugin-electron-builder/lib'
-import installExtension, { VUEJS_DEVTOOLS } from 'electron-devtools-installer'
+import { app, protocol, net, shell, dialog, BrowserWindow, nativeTheme, Menu } from 'electron'
 import contextMenu from 'electron-context-menu'
-const isDevelopment = process.env.NODE_ENV !== 'production'
-
-const electronLocalshortcut = require('electron-localshortcut')
 import settings from 'electron-settings';
+import { pathToFileURL } from 'url'
+const isDevelopment = process.env.NODE_ENV !== 'production'
 
 
 import { start_bridge, bind_window_bridge } from './bridge.js'
@@ -17,15 +14,13 @@ import { bind_window_native_functions } from "./native_functions.js"
 start_bridge();
 
 
-let is_windows = process.platform.startsWith('win');
-
 const path = require('path');
 
 let win;
 
 // Scheme must be registered before the app is ready
 protocol.registerSchemesAsPrivileged([
-	{ scheme: 'app', privileges: { secure: true, standard: true } }
+	{ scheme: 'app', privileges: { secure: true, standard: true, supportFetchAPI: true } }
 ])
 
 
@@ -33,6 +28,7 @@ import {menu_template} from "./menu_template"
 Menu.setApplicationMenu(Menu.buildFromTemplate(menu_template))
 
 
+const is_web_url = (url) => /^https?:\/\//i.test(url)
 
 
 function save_window_size() {
@@ -50,38 +46,27 @@ contextMenu({
 async function createWindow() {
 	// Create the browser window.
 	win = new BrowserWindow({
-		width: 800,
-		height: 600,
+		width: 770,
+		height: 550,
 		minWidth: 770,
 		minHeight: 550,
-		titleBarStyle : (is_windows ) ? 'default' : 'hidden' , 
-		titleBarOverlay : is_windows, 
+		titleBarStyle : 'hidden',
 		maximizable : false,
 		trafficLightPosition: { x: 18, y: 20 },
 		webPreferences: {
+			// ponytail: renderer shows local generated images via file:// URLs, which needs webSecurity off;
+			// serve them through a custom protocol to drop this.
 			webSecurity: false,
-
-			// Use pluginOptions.nodeIntegration, leave this alone
-			// See nklayman.github.io/vue-cli-plugin-electron-builder/guide/security.html#node-integration for more info
-			nodeIntegration: process.env.ELECTRON_NODE_INTEGRATION,
-			contextIsolation: !process.env.ELECTRON_NODE_INTEGRATION,
-			enableRemoteModule: true,
+			nodeIntegration: false,
+			contextIsolation: true,
+			sandbox: true,
 			preload: path.join(__dirname, 'preload.js'),
 		}
 	});
 
-	win.removeMenu(); // remove the menu ( works for windows! )
-
-	electronLocalshortcut.register(win, ['CommandOrControl+R','CommandOrControl+Shift+R', 'F5'], () => {}) //  make the refresh shortcuts blank
-
-	
-	win.setSize(770, 550);
-	// win.setResizable(false);
-	win.setMaximizable(false);
-
-	// save the window state on resize , move, etc 
+	// save the window state on resize , move, etc
 	['resize', 'move'].forEach(event => {
-	  win.on(event, save_window_size);
+		win.on(event, save_window_size);
 	});
 
 
@@ -92,7 +77,7 @@ async function createWindow() {
 			if(win.dialog_on_msg)
 				message = win.dialog_on_msg;
 
-			const choice = require('electron').dialog.showMessageBoxSync(this, {
+			const choice = dialog.showMessageBoxSync(win, {
 				type: 'question',
 				buttons: ['Yes', 'No'],
 				title: 'Confirm',
@@ -104,24 +89,53 @@ async function createWindow() {
 		}
 	});
 
+	// window.open: http(s) goes to the system browser; data: popups (image viewer in utils.open_popup) stay in-app.
+	win.webContents.setWindowOpenHandler(({ url, features }) => {
+		if (url.startsWith('data:')) {
+			// Chromium blocks renderer-initiated data: navigations, so the main process opens it.
+			// No preload; webSecurity off only so the page can show the file:// image.
+			new BrowserWindow({ x: 100, y: 100, frame: !features.includes('frame=false'), webPreferences: { webSecurity: false, sandbox: true } }).loadURL(url);
+			return { action: 'deny' };
+		}
+		if (is_web_url(url))
+			shell.openExternal(url);
+		return { action: 'deny' };
+	});
 
+	// Never navigate the app window away from the app.
+	win.webContents.on('will-navigate', (e, url) => {
+		if (new URL(url).origin === new URL(win.webContents.getURL()).origin)
+			return;
+		e.preventDefault();
+		if (is_web_url(url))
+			shell.openExternal(url);
+	});
 
-	if(is_windows){
-		nativeTheme.themeSource = 'light';
-	} else {
-		nativeTheme.themeSource = 'system';
-	}
-	
+	nativeTheme.themeSource = 'system';
 
 	if (process.env.WEBPACK_DEV_SERVER_URL) {
 		// Load the url of the dev server if in development mode
 		await win.loadURL(process.env.WEBPACK_DEV_SERVER_URL)
 		if (!process.env.IS_TEST) win.webContents.openDevTools()
 	} else {
-		createProtocol('app')
 		// Load the index.html when not in development
 		win.loadURL('app://./index.html')
 	}
+}
+
+// Serve the bundled renderer from app:// (replaces the plugin's deprecated registerBufferProtocol helper).
+function register_app_protocol() {
+	protocol.handle('app', (req) => {
+		// host is part of the path: CSS urls come out as app:///img/x.png, which Chromium turns into app://img/x.png
+		const { host, pathname } = new URL(req.url)
+		const file = path.join(__dirname, host, decodeURIComponent(pathname))
+		if (!file.startsWith(__dirname + path.sep))
+			return new Response('Not found', { status: 404 })
+		return net.fetch(pathToFileURL(file).toString()).catch((err) => {
+			console.error(`app:// ${req.url}: ${err.message}`)
+			return new Response('Not found', { status: 404 })
+		})
+	})
 }
 
 
@@ -138,17 +152,10 @@ app.on('activate', () => {
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.on('ready', async () => {
-	if (isDevelopment && !process.env.IS_TEST) {
-		// Install Vue Devtools
-		try {
-			await installExtension(VUEJS_DEVTOOLS)
-		} catch (e) {
-			console.error('Vue Devtools failed to install:', e.toString())
-		}
-	}
+	if (!process.env.WEBPACK_DEV_SERVER_URL)
+		register_app_protocol();
 	createWindow();
 
-	console.log(win);
 	bind_window_bridge(win);
 
 	win.webContents.on('did-finish-load', function() {
@@ -158,9 +165,9 @@ app.on('ready', async () => {
 
 })
 
-// set the about panel 
+// set the about panel
 app.setAboutPanelOptions({
-	applicationName: require('../package.json').name, 
+	applicationName: require('../package.json').name,
 	applicationVersion: require('../package.json').version,
 	version: require('../package.json').build_number,
 	credits: require('../package.json').description,
@@ -174,15 +181,7 @@ app.setAboutPanelOptions({
 
 // Exit cleanly on request from parent process in development mode.
 if (isDevelopment) {
-	if (process.platform === 'win32') {
-		process.on('message', (data) => {
-			if (data === 'graceful-exit') {
-				app.quit()
-			}
-		})
-	} else {
-		process.on('SIGTERM', () => {
-			app.quit()
-		})
-	}
+	process.on('SIGTERM', () => {
+		app.quit()
+	})
 }

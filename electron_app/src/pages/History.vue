@@ -45,16 +45,6 @@
 
                 
                     <div @click="delete_hist(group.key)" style="float:right; margin-top: 10px;"  class="l_button">Delete</div>
-                    <!-- <div @click="share_on_arthub(group)" style="float:right; margin-top: 10px;"  class="l_button">Share</div> -->
-
-                    <b-dropdown left variant="link" size="sm" toggle-class="text-decoration-none" no-caret style="float:right; margin-top: 5px;">
-                        <template #button-content>
-                            <div   class=" l_button "  >
-                                Share 
-                            </div>
-                        </template>
-                        <b-dropdown-item-button   @click="share_on_arthub(group)"  >Share on ArtHub.ai</b-dropdown-item-button>
-                    </b-dropdown>
 
                     
                     <p class="history_box_info " style="user-select: text;">
@@ -93,10 +83,9 @@
 </template>
 <script>
 import {native_confirm} from "../native_functions_vue_bridge.js";
-import {share_on_arthub} from '../utils.js'
 import GalleryPane from "../components_bare/GalleryPane.vue"
 import {image_manu_functions} from "../components/image_menu_functions.js"
-import {open_popup , form_params_to_text , form_params_to_readable_dict, migrate_history_only_once} from "../utils"
+import {open_popup , form_params_to_text , migrate_history_only_once} from "../utils"
 
 import Vue from 'vue'
 import Fuse from 'fuse.js'
@@ -236,18 +225,6 @@ const History =  {
             if (native_confirm("Are you sure you want to clear history?")){
                 Vue.set( this , "history", {});
             }
-        },
-
-        share_on_arthub(box){
-            this.app.app_state.global_loader_modal_msg = "Uploading";
-            let params = form_params_to_readable_dict(box.params);
-            let that = this;
-            let imgs = (box.imgs.map(x => x.image_url ) )
-            share_on_arthub( imgs , params , box.prompt).then((
-                function(){ that.app.app_state.global_loader_modal_msg = ""}
-            )).catch(
-                function(e ){ console.log(e); alert("Error in uploading.") ; that.app.app_state.global_loader_modal_msg = ""}
-            )
         }
 
     },

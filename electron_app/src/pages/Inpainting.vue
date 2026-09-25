@@ -130,7 +130,7 @@ const Inpainting = {
         },
 
         model_options_types(){
-            return ["sd_model" ,"sd_model_inpaint"]
+            return ["sd_model" ,"inpaint_model"]
             
         },
 
@@ -139,7 +139,8 @@ const Inpainting = {
             form_or = JSON.parse(JSON.stringify(form_or))
             let el = find_in_form_recursive( "selected_sd_model" , form_or)
 
-            el['options'] = [ "SD1.5_Inpainting" , "Default_SD1.5" ]
+            el['options'] = [ "SD-1.5-Inpainting" ]
+            el['default_value'] = "SD-1.5-Inpainting"
 
             return form_or
         }

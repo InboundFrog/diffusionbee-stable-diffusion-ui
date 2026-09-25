@@ -112,62 +112,6 @@ function open_popup( img_url , text ){
 }
 
 
-function addImageProcess(src){
-    return new Promise((resolve, reject) => {
-      let img = new Image()
-      img.onload = () => resolve(img)
-      img.onerror = reject
-      img.src = src
-    })
-  }
-
-// this will only be called when the user clicks to upload thier data for sharing. 
-async function temp_upload_img(img_path) {
-    let img_tag = await addImageProcess("file://" + img_path)
-    let file = await fetch(img_tag.src);
-    let blob = await file.blob()
-    file =  await new File([blob], 'bee_file'+Math.random()+'.png', blob)
-
-    try {
-       let x = await fetch('https://bee.transfr.one/file.png', {
-            method: 'PUT',
-            body: file 
-        });
-        if(x.status != 200)
-             throw 'Could not upload';
-        x = await (await x.text()).toString().replaceAll("\n" , "");
-        return x;
-    } catch (error) {
-        throw 'Could not upload';
-    }
-  
-  }
-
-// this will only be called when the user clicks to upload thier data for sharing. 
-async function share_on_arthub(imgs , params,  prompt ) {
-    let urls = [];
-
-    for(let im of imgs)
-        if(im != 'nsfw')
-            urls.push( await temp_upload_img(im))
-
-    console.log(urls.join(','))
-
-    let share_url = "https://arthub.ai/upload?";
-
-    params = JSON.parse(JSON.stringify(params))
-
-
-    share_url += "description="+ prompt + "&";
-    if(!params.model_version)
-        params.model_version = ""
-    params.model_version = "DiffusionBee" + params.model_version + (params.Model? "_"+params.Model : "") ;
-    share_url += "params="+ JSON.stringify(params) + "&"
-    share_url += "images="+ urls.join(',')
-    window.ipcRenderer.sendSync('open_url', share_url );
-}
-
-
 function form_params_to_readable_dict(form_params){
 
     let r = {};
@@ -326,4 +270,4 @@ function migrate_history_only_once( current_new_history ){
 }
 
 
-export { compute_n_cols , compute_time_remaining , resolve_asset_illustration , simple_hash , open_popup, share_on_arthub, form_params_to_text, find_in_form_recursive, form_params_to_readable_dict, migrate_history_only_once}
+export { compute_n_cols , compute_time_remaining , resolve_asset_illustration , simple_hash , open_popup, form_params_to_text, find_in_form_recursive, form_params_to_readable_dict, migrate_history_only_once}

@@ -38,7 +38,7 @@
 
 import { bind_app_component } from "./py_vue_bridge.js"
 import { send_to_py } from "./py_vue_bridge.js"
-import {native_confirm, native_alert } from "./native_functions_vue_bridge.js"
+import { native_alert } from "./native_functions_vue_bridge.js"
 import StableDiffusion from "./StableDiffusion.vue"
 import SDManager from "./SDManager.vue"
 import AssetsManager from "./AssetsManager.vue"
@@ -80,11 +80,6 @@ export default
 
         bind_app_component(this);
         send_to_py("strt");
-
-        if( require('../package.json').is_dev || require('../package.json').build_number.includes("dev") )
-            alert("Not checking for updates.")
-        else
-            this.check_for_updates()
 
         let that = this;
 
@@ -185,30 +180,6 @@ export default
             this.functions.switch_page("Homepage")
         },
        
-        check_for_updates(){
-            
-            let xmlHttp = new XMLHttpRequest();
-            let user_id = window.ipcRenderer.sendSync('get_instance_id' , '');
-            let updates_url = "https://checkupdates.diffusionbee.com/check_diffusionbee_updates?user_id="+user_id;
-            xmlHttp.onreadystatechange = function() { 
-                if (xmlHttp.readyState == 4 && xmlHttp.status == 200)
-                {
-
-                    let latest_app_version = xmlHttp.responseText.split("|")[0];
-                    console.log("Latest app version" + latest_app_version+ " " + user_id)
-                    let current_versoin = require('../package.json').version + "_" + require('../package.json').build_number
-                    let latest_build_no = Number(latest_app_version.split("_")[1])
-                    let current_build_no = Number(require('../package.json').build_number)
-                    if( latest_app_version != current_versoin && latest_build_no > current_build_no ){
-                        if(native_confirm("A new version of " + require('../package.json').name +" is available. Do you want to visit " +require('../package.json').website+ " to update?"  ))
-                            window.ipcRenderer.sendSync('open_url', require('../package.json').website);
-                    }
-                }
-            }
-            xmlHttp.open("GET", updates_url, true); // true for asynchronous 
-            xmlHttp.send(null);
-        },
-
         set_show_dialog_on_quit(){
             // determine whether electron process should show a confirmation message while closing or not 
             if( ! this.$refs.stable_diffusion.is_input_avail )

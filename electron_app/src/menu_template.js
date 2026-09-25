@@ -55,18 +55,6 @@ const menu_template = [
         { role: 'selectAll' }
       ])
     ]
-  },
-  {
-    role: 'help',
-    submenu: [
-      {
-        label: 'Learn More',
-        click: async () => {
-          const { shell } = require('electron')
-          await shell.openExternal('__domain__')
-        }
-      }
-    ]
   }
 ]
 
