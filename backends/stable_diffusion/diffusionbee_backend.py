@@ -624,7 +624,7 @@ def serve():
 
 def main(argv):
     cmd = argv[1] if len(argv) > 1 else None
-    if cmd not in ("download_model", "inspect_model"):
+    if cmd not in ("download_model", "inspect_model", "upscale"):
         return serve()
     try:
         if cmd == "download_model":
@@ -637,6 +637,10 @@ def main(argv):
                     last[0] = p
                     out(f"progress {p}")
             out("done " + fetch_repo(args[0], variant, progress))
+        elif cmd == "upscale":
+            from upscale import upscale
+            upscale(argv[2], argv[3])
+            out("done " + argv[3])
         else:
             out(json.dumps(inspect_model(argv[2])))
     except Exception as e:

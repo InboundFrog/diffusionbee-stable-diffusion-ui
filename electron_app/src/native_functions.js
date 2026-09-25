@@ -442,35 +442,14 @@ ipcMain.on('delete_file', (event, fpath) => {
 })
 
 
+// 4x Real-ESRGAN upscale via the backend's `upscale` subcommand (weights: 67 MB, fetched into the HF cache on first use)
 function run_realesrgan(input_path , cb ){
-    const path = require('path');
-    let out_path = "/tmp/"+Math.random()+".png";
     const fs = require('fs');
-    let bin_path =  process.env.REALESRGAN_BIN || path.join(path.dirname(__dirname), 'core' , 'realesrgan_ncnn_macos' );
-    let weights_path = bin_path.replaceAll("realesrgan_ncnn_macos" , "models") + "/";
-    let proc = require('child_process').spawn( bin_path  , ['-m' , weights_path , '-i' , input_path , '-o' , out_path ]);
-
-    console.log([bin_path , '-m' , weights_path , '-i' , input_path , '-o' , out_path ])
+    let out_path = path.join("/tmp", Math.random() + ".png"); // /tmp is in the dbimg:// allowlist, os.tmpdir() is not
+    let proc = spawn_backend_cmd(['upscale', input_path, out_path]);
     proc.on('error', (err) => console.error(`sr error: ${err.message}`)); // missing binary: 'close' still reports the failure
-
-
-    proc.stderr.on('data', (data) => {
-        console.error(`sr stderr: ${data}`);
-    });
-
-    proc.stdout.on('data', (data) => {
-        console.error(`sr stderr: ${data}`);
-    });
-
-    proc.on('close', (code) => {
-        if (fs.existsSync(out_path)) {
-            cb(out_path);
-        }
-        else
-        {
-            cb('');
-        }
-    });
+    proc.stderr.on('data', (data) => console.error(`sr stderr: ${data}`));
+    proc.on('close', () => cb(fs.existsSync(out_path) ? out_path : ''));
 }
 
 

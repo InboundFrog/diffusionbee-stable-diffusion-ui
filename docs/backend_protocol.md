@@ -104,6 +104,9 @@ Each prints plain lines on stdout. On failure it exits non-zero and the last std
   prints one JSON line `{"family": "sdxl", "is_inpaint": false, "type": "sd_model"|"lora"|"controlnet"}`.
   - `family` is `null` when unknown.
   - A LoRA's family comes from its cross-attention width: 768/1024 gives sd15, 2048 gives sdxl. It is `null` for DiT LoRAs, which the app shows for every model.
+- `diffusionbee_backend upscale <in.png> <out.png>`
+  4x Real-ESRGAN x4plus on MPS (fp16, 256 px tiles), prints `done <out.png>`. Alpha is kept.
+  Weights: `Comfy-Org/Real-ESRGAN_repackaged/RealESRGAN_x4plus.safetensors` (67 MB), fetched into the HF cache on first use.
 
 ## Model families (defaults the UI should use)
 

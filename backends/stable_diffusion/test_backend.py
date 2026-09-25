@@ -170,3 +170,17 @@ if __name__ == "__main__":
         if name.startswith("test_"):
             fn()
             print("ok", name)
+
+
+def test_upscale():
+    # 300x200 crosses the 256px tile boundary in both directions; Real-ESRGAN weights are 67 MB, downloaded once
+    src, dst = os.path.join(TMP, "up_in.png"), os.path.join(TMP, "up_out.png")
+    grad = np.linspace(0, 255, 300, dtype=np.uint8)
+    Image.fromarray(np.stack([np.tile(grad, (200, 1))] * 3, -1)).save(src)
+    r = subprocess.run([sys.executable, BACKEND, "upscale", src, dst], capture_output=True, text=True)
+    assert r.returncode == 0 and r.stdout.strip() == "done " + dst, r.stderr[-2000:]
+    out = np.asarray(Image.open(dst).convert("L"), dtype=np.float32)
+    assert out.shape == (800, 1200)
+    # a smooth gradient must stay smooth across the tile seam at x=1024 (no stitching offset)
+    assert abs(out[:, 1023].mean() - out[:, 1024].mean()) < 4
+    assert abs(out[:, 600].mean() - 127) < 12
