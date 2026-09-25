@@ -33,6 +33,8 @@ module.exports = {
                     icon: "build/Icon-1024.png",
                     category: "public.app-category.graphics-design",
                     hardenedRuntime: true,
+                    // ad-hoc sign local builds so codesign --verify passes; a real identity comes from CSC_NAME/CSC_LINK
+                    identity: (process.env.CSC_NAME || process.env.CSC_LINK) ? undefined : "-",
                     entitlements: "build/entitlements.mac.plist",
                     entitlementsInherit: "build/entitlements.mac.plist",
                     minimumSystemVersion: min_os_version,

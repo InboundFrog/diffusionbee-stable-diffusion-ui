@@ -188,3 +188,6 @@ Temporary Items
 
 
 pretrained_weights/
+
+# keep the PyInstaller spec (build_mac.sh output goes to dist/, ignored above)
+!packaging/*.spec

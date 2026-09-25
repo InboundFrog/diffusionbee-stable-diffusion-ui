@@ -105,6 +105,37 @@ History:
 * For Intel : MacOS 12.3.1 or later 
 * For M1/M2 : MacOS 11.0.0 or later 
 
+## Building the macOS app (Apple Silicon)
+
+Needs [uv](https://docs.astral.sh/uv/) (`brew install uv`), Node.js and Xcode command line tools.
+
+```
+./build_mac.sh                 # -> electron_app/dist_electron/DiffusionBee-<version>-arm64.dmg
+./build_mac.sh --backend-only  # just the bundled backend -> dist/diffusionbee_backend/
+```
+
+What it does:
+1. Creates a clean Python 3.12 venv in `dist/venv` with uv from `backends/stable_diffusion/requirements.txt`.
+2. Bundles the backend with PyInstaller (`packaging/diffusionbee_backend.spec`, `--onedir`) into
+   `dist/diffusionbee_backend/`, then smoke-tests the bundle.
+3. Builds the Electron app with `BACKEND_BUILD_PATH=dist/diffusionbee_backend`; electron-builder copies it
+   to `DiffusionBee.app/Contents/Resources/core/`, where the app spawns `core/diffusionbee_backend`.
+
+The DMG is unsigned unless signing variables are set. For a signed and notarized build:
+
+```
+export CSC_NAME="Your Name (TEAMID)"          # Developer ID Application identity in your keychain
+                                               # (or CSC_LINK=cert.p12 + CSC_KEY_PASSWORD)
+export APPLE_ID=you@example.com APPLE_APP_SPECIFIC_PASSWORD=xxxx-xxxx-xxxx-xxxx APPLE_TEAM_ID=TEAMID
+# or: export APPLE_KEYCHAIN_PROFILE=<notarytool store-credentials profile>
+./build_mac.sh
+```
+
+electron-builder signs every Mach-O file inside `Resources/core/` with the hardened runtime and
+`electron_app/build/entitlements.mac.plist`, then notarizes and staples the app.
+
+To run from source instead, see [docs/Running_from_source.md](docs/Running_from_source.md).
+
 License : Stable Diffusion is released under the CreativeML OpenRAIL M license : https://github.com/CompVis/stable-diffusion/blob/main/LICENSE
 Diffusion Bee is just a GUI wrapper on top of Stable Diffusion, so all the term of Stable Diffusion are applied on the outputs. 
 
