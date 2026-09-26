@@ -34,18 +34,21 @@ IMAGES_DIR = DB_HOME / "images"
 # family -> (default size, steps, cfg); used when the job leaves them out
 FAMILIES = {
     "sd15": (512, 25, 7.5), "sdxl": (1024, 30, 6.0), "sd3": (1024, 40, 4.5), "flux": (1024, 28, 3.5),
-    "flux2": (1024, 4, 1.0), "zimage": (1024, 8, 0.0), "qwenimage": (1328, 50, 4.0),
+    "flux2": (1024, 4, 1.0), "zimage": (1024, 8, 0.0), "qwenimage": (1328, 50, 4.0), "qwenimage21": (1328, 40, 1.0),
 }
-DIT_FAMILIES = {"sd3", "flux", "flux2", "zimage", "qwenimage"}  # loaded in bf16
-# ponytail: measured data, not a model: lifetime peak (GB) at 1024² on an M4 Pro (docs/mlx_benchmark_notes.md).
+DIT_FAMILIES = {"sd3", "flux", "flux2", "zimage", "qwenimage", "qwenimage21"}  # loaded in bf16
+# ponytail: measured data, not a model: lifetime peak (GB) at 1024² on an M4 Pro (docs/mlx_benchmark_notes.md);
+# qwenimage21: the most at any size up to 2048² (its 17.5 GB bf16 text encoder dominates).
 # bf16 = diffusers (None: diffusers can't run it), q8/q4 = the mflux (MLX) engine. pick_tier() takes the first that
 # fits in 75% of RAM. Unlisted families always use diffusers; measure one to add it.
 DIT_PEAK_GB = {"zimage": {"bf16": 30.5, "q8": 15.1, "q4": 10.4},
                "flux2": {"bf16": 23, "q8": 13.3, "q4": 9.6},
-               "flux": {"bf16": 39.6, "q8": 22.2, "q4": 14.4}}
+               "flux": {"bf16": 39.6, "q8": 22.2, "q4": 14.4},
+               "qwenimage21": {"bf16": None, "q8": 28.5, "q4": 25.1}}
 TIERS = ("bf16", "q8", "q4")
 CLASS_FAMILIES = [("StableDiffusionXL", "sdxl"), ("StableDiffusion3", "sd3"), ("StableDiffusion", "sd15"),
-                  ("Flux2", "flux2"), ("Flux", "flux"), ("ZImage", "zimage"), ("QwenImage", "qwenimage")]
+                  ("Flux2", "flux2"), ("Flux", "flux"), ("ZImage", "zimage"), ("QwenImage21", "qwenimage21"),
+                  ("QwenImage", "qwenimage")]
 # single-file checkpoints: family -> (pipeline class, inpaint pipeline class)
 SINGLE_FILE = {"sd15": ("StableDiffusionPipeline", "StableDiffusionInpaintPipeline"),
                "sdxl": ("StableDiffusionXLPipeline", "StableDiffusionXLInpaintPipeline"),
@@ -528,8 +531,8 @@ class Engine:
         kw = dict(prompt=str(d.get("prompt") or ""), num_inference_steps=steps, guidance_scale=cfg,
                   width=w, height=h, output_type="pil")
         neg = str(d.get("negative_prompt") or "")
-        if cfg > 1 and neg:
-            kw["negative_prompt"] = neg
+        if cfg > 1 and (neg or family == "qwenimage21"):
+            kw["negative_prompt"] = neg or " "  # qwenimage21 (mflux) runs true CFG only with a negative prompt
         if family == "qwenimage":  # real CFG needs true_cfg_scale and a negative prompt
             kw.update(true_cfg_scale=cfg, negative_prompt=neg or " ", guidance_scale=None)
         if family == "sd15" and d.get("is_clip_skip_2"):
@@ -584,7 +587,8 @@ class Engine:
         if type(self.base).__name__ == "MfluxPipe":
             if mode == "inpaint" or d.get("lora_paths"):  # ponytail: mflux takes lora_paths at load; wire up when asked
                 what = "inpaint" if mode == "inpaint" else "LoRA"
-                raise ValueError(f"{what} is not supported for {family} on the low-memory MLX engine this Mac uses")
+                where = "the low-memory MLX engine this Mac uses" if DIT_PEAK_GB[family]["bf16"] else "the MLX engine"
+                raise ValueError(f"{what} is not supported for {family} on {where}")
             pipe = self.base
         else:
             self.set_loras(d.get("lora_paths") or [], d.get("lora_weights"))

@@ -93,7 +93,7 @@ def test_family_detection():
 def test_engine_tiers():
     # RAM tier (GB) -> engine per family, as in docs/backend_protocol.md
     want = {"zimage": ("q4", "q8", "q8", "bf16"), "flux2": ("q4", "q8", "bf16", "bf16"),
-            "flux": (None, "q4", "q8", "q8"), "sdxl": ("bf16",) * 4}
+            "flux": (None, "q4", "q8", "q8"), "qwenimage21": (None, None, None, "q8"), "sdxl": ("bf16",) * 4}
     for family, tiers in want.items():
         assert tuple(db.pick_tier(family, ram) for ram in (16, 24, 32, 48)) == tiers, family
     assert db.pick_tier("zimage", 8) is None
@@ -213,7 +213,8 @@ def cached_snapshot(*repos):
 
 @pytest.mark.parametrize("family,repos", [
     ("flux2", ["black-forest-labs/FLUX.2-klein-4B"]),
-    ("flux", ["black-forest-labs/FLUX.1-schnell", "black-forest-labs/FLUX.1-dev"])])
+    ("flux", ["black-forest-labs/FLUX.1-schnell", "black-forest-labs/FLUX.1-dev"]),
+    ("qwenimage21", ["Qwen/Qwen-Image-2.1"])])
 def test_mlx_families(family, repos):
     # each mflux family at its q4 RAM tier: protocol progress, image, inpaint/LoRA errors, a stop inside the denoising loop
     pytest.importorskip("mlx.core")
