@@ -125,6 +125,9 @@ export default {
                 }
                     
             }
+            // keep the loaded steps/cfg/size: the selected_sd_model watcher (queued before this nextTick) would reset them to family defaults
+            this.is_loading_options = true
+            this.$nextTick(() => this.is_loading_options = false)
         } , 
 
         request_ojects_from_img_element(object_name , object ){
@@ -303,7 +306,7 @@ export default {
     watch: {
         // switching to a model of another family: load that family's defaults
         'sd_options.selected_sd_model'(new_id, old_id){
-            if(old_id === undefined) // the saved form is being restored
+            if(old_id === undefined || this.is_loading_options) // the saved form or an image's params are being restored
                 return
             let meta = this.app.assets_manager.model_meta(new_id)
             let old_meta = this.app.assets_manager.model_meta(old_id)
