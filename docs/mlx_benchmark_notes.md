@@ -191,7 +191,7 @@ Both SDXL images show a similar fox. PSNR across engines is 10 dB, which is expe
    - The offline branch `snapshot_download(repo, local_files_only=True)` then raises `LocalEntryNotFoundError`.
    - Confirmed for FLUX.2-klein-4B and SDXL base; Z-Image happens to have a `refs/main`.
    - So with no network, a model that has already been downloaded fails to load.
-   - Suggested fix: fall back to the single snapshot dir, e.g. `glob(hub/models--org--name/snapshots/*)`, or record the sha next to the model. Not fixed here: repo code was out of scope.
+   - Suggested fix: fall back to the single snapshot dir, e.g. `glob(hub/models--org--name/snapshots/*)`, or record the sha next to the model. Fixed in 7f99760: offline, fetch_repo uses the newest cached snapshot.
 2. **`torch.compile` works on MPS in torch 2.14.**
    - Inductor emits only Metal kernels (`async_compile.metal`), so no C++ toolchain is needed.
    - It costs ~8–11 s on the first image and recompiles per resolution.
