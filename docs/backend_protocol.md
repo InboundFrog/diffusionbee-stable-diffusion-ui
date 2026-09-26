@@ -128,8 +128,9 @@ Apple Silicon settings:
 - Device is `mps`. `PYTORCH_ENABLE_MPS_FALLBACK=1` is set.
 - DiT families load in bf16. SD 1.5/SDXL load in fp16; the SDXL VAE upcasts itself.
 - Attention is SDPA. Attention slicing is on only with 16 GB of RAM or less.
-- Engine for zimage and flux2 diffusers folders: the MLX engine (mflux, quantized) when the family's diffusers bf16 peak
-  (Z-Image 30.5 GB, FLUX.2 23 GB at 1024²) is over 75% of RAM; 4-bit with 16 GB of RAM or less, else 8-bit. Otherwise diffusers.
+- Engine for zimage and flux2 diffusers folders: the first of diffusers bf16, MLX (mflux) 8-bit, MLX 4-bit whose measured
+  peak at 1024² (`DIT_PEAK_GB`: Z-Image 30.5 / 15.1 / 10.4 GB, FLUX.2 23 / 13.3 / 9.6 GB) is at most 75% of RAM.
+  When none fits, the job fails with `<model> needs about N GB of RAM`.
   Other families and single-file checkpoints always use diffusers.
 
   | RAM | zimage | flux2 |

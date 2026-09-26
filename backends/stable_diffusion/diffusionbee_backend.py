@@ -19,6 +19,7 @@ import json
 import math
 import queue
 import random
+import re
 import struct
 import threading
 import traceback
@@ -36,9 +37,12 @@ FAMILIES = {
     "flux2": (1024, 4, 1.0), "zimage": (1024, 8, 0.0), "qwenimage": (1328, 50, 4.0),
 }
 DIT_FAMILIES = {"sd3", "flux", "flux2", "zimage", "qwenimage"}  # loaded in bf16
-# ponytail: diffusers bf16 peak (GB) at 1024², measured on an M4 Pro (docs/mlx_benchmark_notes.md). Above 75% of RAM
-# the family runs on the MLX engine instead. Unlisted families always use diffusers; measure one to add it.
-DIT_PEAK_GB = {"zimage": 30.5, "flux2": 23}
+# ponytail: measured data, not a model: lifetime peak (GB) at 1024² on an M4 Pro (docs/mlx_benchmark_notes.md).
+# bf16 = diffusers (None: diffusers can't run it), q8/q4 = the mflux (MLX) engine. pick_tier() takes the first that
+# fits in 75% of RAM. Unlisted families always use diffusers; measure one to add it.
+DIT_PEAK_GB = {"zimage": {"bf16": 30.5, "q8": 15.1, "q4": 10.4},
+               "flux2": {"bf16": 23, "q8": 13.3, "q4": 9.6}}
+TIERS = ("bf16", "q8", "q4")
 CLASS_FAMILIES = [("StableDiffusionXL", "sdxl"), ("StableDiffusion3", "sd3"), ("StableDiffusion", "sd15"),
                   ("Flux2", "flux2"), ("Flux", "flux"), ("ZImage", "zimage"), ("QwenImage", "qwenimage")]
 # single-file checkpoints: family -> (pipeline class, inpaint pipeline class)
@@ -70,6 +74,12 @@ def ram_gb():
         return float(os.environ["DIFFUSIONBEE_RAM_GB"])
     except (KeyError, ValueError):
         return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1024 ** 3
+
+
+def pick_tier(family, ram):
+    """'bf16' (diffusers), 'q8' or 'q4' (mflux): the first tier whose peak fits in 75% of RAM. None: nothing fits."""
+    peaks = DIT_PEAK_GB.get(family, {"bf16": 0})
+    return next((t for t in TIERS if peaks.get(t) is not None and peaks[t] <= 0.75 * ram), None)
 
 
 def one_line(e):
@@ -387,21 +397,25 @@ class Engine:
                 raise ValueError(f"Not a diffusers pipeline folder (no model_index.json): {src}")
             index = json.load(open(index_file))
             cls_name = index.get("_class_name", "")
-            if not hasattr(diffusers, cls_name):
-                raise ValueError(f"{cls_name} needs a newer diffusers than {diffusers.__version__}")
             family = family_hint or family_from_class(cls_name)
-            if DIT_PEAK_GB.get(family, 0) > 0.75 * self.ram:  # diffusers would swap: quantized MLX engine
+            tier = pick_tier(family, self.ram)
+            if tier is None:
+                name = re.search(r"models--[^/]+--([^/]+)", src)
+                name = name.group(1) if name else os.path.basename(src.rstrip("/"))
+                raise ValueError(f"{name} needs about {math.ceil(DIT_PEAK_GB[family]['q4'] / 0.75)} GB of RAM")
+            if tier != "bf16":  # diffusers would swap: quantized MLX engine
                 try:
                     import mflux_pipe
                 except ModuleNotFoundError as e:
                     if e.name not in ("mlx", "mflux"):
                         raise
                 else:
-                    bits = 4 if self.low_ram else 8
-                    print(f"{family}: MLX engine, {bits}-bit", file=sys.stderr, flush=True)
-                    self.base = mflux_pipe.load(family, src, bits)
+                    print(f"{family}: MLX engine, {tier}", file=sys.stderr, flush=True)
+                    self.base = mflux_pipe.load(family, src, int(tier[1:]))
                     self.base_key, self.family = src, family
                     return
+            if not hasattr(diffusers, cls_name):
+                raise ValueError(f"{cls_name} needs a newer diffusers than {diffusers.__version__}")
             kw = dict(dtype=self.dtype("transformer" in index), use_safetensors=True)
             if "safety_checker" in index:
                 kw.update(safety_checker=None, requires_safety_checker=False)
@@ -422,7 +436,7 @@ class Engine:
         pipe.set_progress_bar_config(disable=True)
         if self.low_ram and hasattr(pipe, "unet"):
             pipe.enable_attention_slicing()
-        peak = DIT_PEAK_GB.get(family)
+        peak = DIT_PEAK_GB.get(family, {}).get("bf16")
         if peak and self.ram >= 1.5 * peak and self.device == "mps" and os.environ.get("DIFFUSIONBEE_COMPILE") != "0":
             print(f"{family}: torch.compile", file=sys.stderr, flush=True)
             pipe.transformer.compile()  # 9-15% faster; ~10 s compile on the first step at each new size

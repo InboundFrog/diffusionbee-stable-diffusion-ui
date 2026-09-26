@@ -89,6 +89,15 @@ def test_family_detection():
     assert db.inspect_model(st_file("junk.safetensors", {"foo": (1,)}))["family"] is None
 
 
+def test_engine_tiers():
+    # RAM tier (GB) -> engine per family, as in docs/backend_protocol.md
+    want = {"zimage": ("q4", "q8", "q8", "bf16"), "flux2": ("q4", "q8", "bf16", "bf16"),
+            "sdxl": ("bf16",) * 4}
+    for family, tiers in want.items():
+        assert tuple(db.pick_tier(family, ram) for ram in (16, 24, 32, 48)) == tiers, family
+    assert db.pick_tier("zimage", 8) is None
+
+
 def test_pick_files():
     sd15 = ["model_index.json", "v1-5-pruned.safetensors", "v1-5-pruned.ckpt", "unet/config.json",
             "unet/diffusion_pytorch_model.safetensors", "unet/diffusion_pytorch_model.fp16.safetensors",
