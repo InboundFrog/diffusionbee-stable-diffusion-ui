@@ -99,7 +99,11 @@ Each prints plain lines on stdout. On failure it exits non-zero and the last std
   - Example sizes: SD 1.5 2.0 GB (repo 47 GB), FLUX.1-schnell 33.7 GB (repo 58 GB), FLUX.1-dev 33.8 GB, FLUX.2-klein-4B 16 GB (repo 24 GB),
     Qwen-Image-2.1 33.1 GB.
   - Z-Image-Turbo is 32.8 GB because its transformer is stored in fp32 (it loads as bf16).
-  - `HF_HOME` defaults to `~/.diffusionbee/hf`. The `HF_TOKEN` env var enables gated repos, and a gated repo without access gives a "gated: accept its license" error.
+  - The files go to the standard Hugging Face cache (`HF_HOME`, default `~/.cache/huggingface`), shared with other tools.
+    The HF cache holds untouched downloads only: nothing but huggingface_hub downloads writes to it, and the app never
+    deletes from it (Remove only forgets the model; `hf cache rm model/<org>/<name>` deletes the files). Anything
+    derived from a model, such as future pre-quantized MLX weights, goes under `~/.diffusionbee`.
+  - The `HF_TOKEN` env var enables gated repos, and a gated repo without access gives a "gated: accept its license" error.
   - When the Hub can't be reached, it falls back to the cached copy.
 - `diffusionbee_backend inspect_model <path>` (a `.safetensors` file or a diffusers folder)
   prints one JSON line `{"family": "sdxl", "is_inpaint": false, "type": "sd_model"|"lora"|"controlnet"}`.

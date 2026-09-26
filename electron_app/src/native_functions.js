@@ -559,16 +559,6 @@ ipcMain.handle('inspect_model', async (event, model_path) => {
 })
 
 
-// Remove a downloaded repo from the HF cache. Gets the snapshot folder: <HF_HOME>/hub/models--org--name/snapshots/<rev>
-ipcMain.on('delete_hf_model', (event, snapshot_dir) => {
-    let repo_dir = path.resolve(snapshot_dir, "..", "..");
-    let is_hf_cache_dir = path.basename(path.dirname(snapshot_dir)) == "snapshots" && path.basename(repo_dir).startsWith("models--");
-    if (is_hf_cache_dir)
-        require('fs').rmSync(repo_dir, { recursive: true, force: true });
-    event.returnValue = is_hf_cache_dir;
-})
-
-
 ipcMain.on('get_total_ram_gb', (event) => {
     event.returnValue = Math.round(require('os').totalmem() / 2**30);
 })

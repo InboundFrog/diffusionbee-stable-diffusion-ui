@@ -3,7 +3,7 @@
     python packaging/smoke_test.py dist/diffusionbee_backend/diffusionbee_backend
 
 download_model -> inspect_model -> long-running mode: wait for `sdbk mdld`, run one tiny t2im job, __stop__.
-Needs network once (11 MB tiny model into ~/.diffusionbee/hf). Exits non-zero on any failure.
+Needs network once (11 MB tiny model into the Hugging Face cache). Exits non-zero on any failure.
 """
 import json, os, queue, subprocess, sys, threading, time
 

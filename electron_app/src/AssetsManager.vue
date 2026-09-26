@@ -149,8 +149,9 @@ export default {
             // imported models are the user's own files: only forget them
             if(!asset_details || asset_details.is_locally_imported || !asset_details.asset_path)
                 return
+            // the HF cache is shared with other tools and only ever written by huggingface_hub downloads: only forget
             if(asset_details.hf_repo)
-                window.ipcRenderer.sendSync('delete_hf_model',  asset_details.asset_path );
+                Vue.$toast.default(`Removed ${asset_details.title || asset_id}. Its files stay in the Hugging Face cache; "hf cache rm model/${asset_details.hf_repo}" deletes them.`, {duration: 15000})
             else
                 window.ipcRenderer.sendSync('delete_file',  asset_details.asset_path );
         },

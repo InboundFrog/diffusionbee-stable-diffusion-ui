@@ -2,7 +2,7 @@
     <div>
         <div v-if="is_downloaded" >
              <!-- <p>Downloaded </p> -->
-             <div @click="deletee" class="l_button button_colored">Delete</div>
+             <div @click="deletee" class="l_button button_colored">{{asset_details.hf_repo || asset_details.is_locally_imported ? 'Remove' : 'Delete'}}</div>
 
         </div>
 

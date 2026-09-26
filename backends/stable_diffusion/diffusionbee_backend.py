@@ -10,7 +10,6 @@ from pathlib import Path
 
 DB_HOME = Path.home() / ".diffusionbee"
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")  # must be set before torch is imported
-os.environ.setdefault("HF_HOME", str(DB_HOME / "hf"))
 
 import gc
 import glob
