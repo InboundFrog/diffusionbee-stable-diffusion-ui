@@ -6,7 +6,8 @@
         "flux":      { "default_steps": 28, "default_guidance": 3.5, "default_size": 1024, "supports_negative_prompt": false, "supports_img2img": true, "supports_inpaint": true,  "supports_controlnet": false },
         "flux2":     { "default_steps": 4,  "default_guidance": 1,   "default_size": 1024, "supports_negative_prompt": false, "supports_img2img": true, "supports_inpaint": false, "supports_controlnet": false },
         "zimage":    { "default_steps": 8,  "default_guidance": 0,   "default_size": 1024, "supports_negative_prompt": false, "supports_img2img": true, "supports_inpaint": true, "supports_controlnet": false },
-        "qwenimage": { "default_steps": 50, "default_guidance": 4,   "default_size": 1328, "supports_negative_prompt": true,  "supports_img2img": true, "supports_inpaint": true, "supports_controlnet": false }
+        "qwenimage": { "default_steps": 50, "default_guidance": 4,   "default_size": 1328, "supports_negative_prompt": true,  "supports_img2img": true, "supports_inpaint": true, "supports_controlnet": false },
+        "qwenimage21": { "default_steps": 40, "default_guidance": 1, "default_size": 1328, "supports_negative_prompt": true,  "supports_img2img": true, "supports_inpaint": false, "supports_controlnet": false }
     },
     "models": [
         {
@@ -53,9 +54,28 @@
             "description": "12B FLUX.1 model distilled for 4-step generation.",
             "hf_repo": "black-forest-labs/FLUX.1-schnell",
             "size_gb": 33.7,
-            "min_ram_gb": 32,
+            "min_ram_gb": 24,
             "requires_hf_token": true,
             "model_meta_data": { "type": "sd_model", "family": "flux", "default_steps": 4, "default_guidance": 0 }
+        },
+        {
+            "id": "FLUX.1-dev",
+            "title": "FLUX.1 dev",
+            "description": "12B FLUX.1 model with distilled guidance, 28 steps. Non-commercial license.",
+            "hf_repo": "black-forest-labs/FLUX.1-dev",
+            "size_gb": 33.8,
+            "min_ram_gb": 24,
+            "requires_hf_token": true,
+            "model_meta_data": { "type": "sd_model", "family": "flux" }
+        },
+        {
+            "id": "Qwen-Image-2.1",
+            "title": "Qwen-Image 2.1",
+            "description": "7B model with an 8B Qwen3-VL text encoder: up to 2048px and strong text rendering. Slow: minutes per image.",
+            "hf_repo": "Qwen/Qwen-Image-2.1",
+            "size_gb": 33.1,
+            "min_ram_gb": 36,
+            "model_meta_data": { "type": "sd_model", "family": "qwenimage21" }
         },
         {
             "id": "SD-3.5-Medium",

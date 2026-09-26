@@ -304,13 +304,13 @@ export default {
     },
 
     watch: {
-        // switching to a model of another family: load that family's defaults
+        // switching to a model with other defaults (another family, or FLUX.1 schnell <-> dev): load its defaults
         'sd_options.selected_sd_model'(new_id, old_id){
             if(old_id === undefined || this.is_loading_options) // the saved form or an image's params are being restored
                 return
             let meta = this.app.assets_manager.model_meta(new_id)
             let old_meta = this.app.assets_manager.model_meta(old_id)
-            if(!meta || (old_meta && old_meta.family == meta.family))
+            if(!meta || (old_meta && ['default_steps', 'default_guidance', 'default_size'].every(k => old_meta[k] == meta[k])))
                 return
             Vue.set(this.sd_options, 'num_steps', meta.default_steps)
             Vue.set(this.sd_options, 'guidance_scale', meta.default_guidance)

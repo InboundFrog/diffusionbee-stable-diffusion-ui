@@ -7,7 +7,7 @@ const catalog = load('./model_catalog.json')
 const form = load('./forms/sd_options_adv.json')
 
 // families from docs/backend_protocol.md
-const FAMILIES = ['sd15', 'sdxl', 'sd3', 'flux', 'flux2', 'zimage', 'qwenimage']
+const FAMILIES = ['sd15', 'sdxl', 'sd3', 'flux', 'flux2', 'zimage', 'qwenimage', 'qwenimage21']
 const TYPES = ['sd_model', 'inpaint_model', 'controlnet']
 const FLAGS = ['supports_negative_prompt', 'supports_img2img', 'supports_inpaint', 'supports_controlnet']
 
