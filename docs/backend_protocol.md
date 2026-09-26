@@ -137,8 +137,11 @@ Apple Silicon settings:
   | ≤ 16 GB | MLX 4-bit (~10 GB peak) | MLX 4-bit (~10 GB) |
   | 24 GB | MLX 8-bit (~15 GB) | MLX 8-bit (~13 GB) |
   | 32 GB | MLX 8-bit | diffusers bf16 |
-  | 48 GB | diffusers bf16 | diffusers bf16 |
+  | 48 GB | diffusers bf16 + compile | diffusers bf16 + compile |
 
+- On diffusers, zimage and flux2 transformers get `torch.compile` when RAM is at least 1.5× that peak (Z-Image 46 GB,
+  FLUX.2 35 GB): about 9–15% faster per image. The first step at each new size compiles for ~10 s. If a compiled call fails,
+  the backend logs it to stderr and reruns that image eagerly, and the model stays eager. `DIFFUSIONBEE_COMPILE=0` turns it off.
 - `DIFFUSIONBEE_RAM_GB=<GB>` in the backend's environment replaces the detected RAM for these choices (and attention slicing),
   to test the tiers on a bigger Mac or to force the MLX engine. The app passes its environment through to the backend.
 - The MLX engine runs txt2img and img2img. Inpaint and LoRA jobs fail with

@@ -367,6 +367,8 @@ class Engine:
     def unload(self):
         self.base = self.base_key = self.family = self.cn = self.cn_path = None
         self.loras = ()
+        if "torch._dynamo" in sys.modules:
+            self.torch._dynamo.reset()  # compiled graphs of the old transformer
         gc.collect()
         if self.device == "mps":
             self.torch.mps.empty_cache()
@@ -420,6 +422,10 @@ class Engine:
         pipe.set_progress_bar_config(disable=True)
         if self.low_ram and hasattr(pipe, "unet"):
             pipe.enable_attention_slicing()
+        peak = DIT_PEAK_GB.get(family)
+        if peak and self.ram >= 1.5 * peak and self.device == "mps" and os.environ.get("DIFFUSIONBEE_COMPILE") != "0":
+            print(f"{family}: torch.compile", file=sys.stderr, flush=True)
+            pipe.transformer.compile()  # 9-15% faster; ~10 s compile on the first step at each new size
         self.base, self.base_key, self.family = pipe, src, family
 
     def load_controlnet(self, path):
@@ -597,7 +603,16 @@ class Engine:
         if "callback_on_step_end" in call_params(job.pipe):
             kw["callback_on_step_end"] = on_step
         with noise_variation(job.pipe, mod_seed):
-            img = job.pipe(**kw).images[0]
+            try:
+                img = job.pipe(**kw).images[0]
+            except Exception as e:
+                tr = getattr(job.pipe, "transformer", None)
+                if getattr(tr, "_compiled_call_impl", None) is None:
+                    raise
+                print(f"torch.compile failed, running eager: {one_line(e)}", file=sys.stderr, flush=True)
+                tr._compiled_call_impl = None  # undo transformer.compile() for good
+                kw["generator"] = self.torch.Generator("cpu").manual_seed(seed)
+                img = job.pipe(**kw).images[0]
         if stopped:
             return None
         if job.soft_mask is not None:  # keep the unmasked pixels exactly

@@ -209,6 +209,18 @@ def test_mlx_engine():
         b.close()
 
 
+def test_compile_falls_back_to_eager():
+    e = db.Engine()
+    model = db.fetch_repo("hf-internal-testing/tiny-flux-pipe")
+    job = e.prepare(dict(prompt="a cat", model_path=model, num_steps=2, img_width=64, img_height=64))
+
+    def broken_backend(gm, example_inputs):
+        raise RuntimeError("no compiler here")
+    e.base.transformer.compile(backend=broken_backend)
+    assert e.render(job, 7).size == (64, 64)
+    assert e.base.transformer._compiled_call_impl is None
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
