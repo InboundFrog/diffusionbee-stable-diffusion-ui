@@ -34,7 +34,7 @@ Model fields (replace all `*_tdict_path` fields):
 |---|---|
 | `model_path` | Local diffusers folder (has `model_index.json`) or single-file `.safetensors` checkpoint |
 | `model_repo` | HF repo id, used when `model_path` is absent (resolved from the HF cache, downloaded if missing). The app downloads first and sends `model_path` |
-| `model_family` | optional hint: `sd15`, `sdxl`, `sd3`, `flux`, `flux2`, `zimage`, `qwenimage`. Autodetected otherwise |
+| `model_family` | optional hint: `sd15`, `sdxl`, `sd3`, `flux`, `flux2`, `zimage`, `qwenimage`, `qwenimage21`. Autodetected otherwise |
 | `inpaint_model_path` / `inpaint_model_repo` | optional dedicated inpainting checkpoint, used for inpaint jobs. May equal `model_path` (loaded once). An inpainting checkpoint always runs its inpaint pipeline (full mask / blank image when none is given) |
 | `controlnet_path` / `controlnet_repo` | ControlNet: diffusers folder or single `.safetensors`. SD 1.5 / SDXL only |
 | `lora_paths` | list of LoRA `.safetensors` files (the app sends one); `lora_weights` optional parallel list, default 1.0 |
@@ -96,7 +96,8 @@ Each prints plain lines on stdout. On failure it exits non-zero and the last std
   - Downloads only what the pipeline loads: configs and tokenizers, plus one set of `.safetensors` per component listed in `model_index.json`.
   - Prefers the variant, which defaults to `fp16` when the repo has it.
   - Skips root single-file checkpoints, `.bin`/`.ckpt`, `non_ema`, onnx, `safety_checker` and assets.
-  - Example sizes: SD 1.5 2.0 GB (repo 47 GB), FLUX.1-schnell 33.7 GB (repo 58 GB), FLUX.2-klein-4B 16 GB (repo 24 GB).
+  - Example sizes: SD 1.5 2.0 GB (repo 47 GB), FLUX.1-schnell 33.7 GB (repo 58 GB), FLUX.1-dev 33.8 GB, FLUX.2-klein-4B 16 GB (repo 24 GB),
+    Qwen-Image-2.1 33.1 GB.
   - Z-Image-Turbo is 32.8 GB because its transformer is stored in fp32 (it loads as bf16).
   - `HF_HOME` defaults to `~/.diffusionbee/hf`. The `HF_TOKEN` env var enables gated repos, and a gated repo without access gives a "gated: accept its license" error.
   - When the Hub can't be reached, it falls back to the cached copy.
@@ -121,31 +122,39 @@ Steps and cfg follow the Hugging Face model cards.
 | flux2 (FLUX.2 klein) | 1024 | 4 | 1 | no | yes (reference image) | no | no |
 | zimage (Z-Image-Turbo) | 1024 | 8 | 0 | no | yes | yes | no |
 | qwenimage (Qwen-Image, Qwen-Image-2512) | 1328 | 50 | 4 (true CFG) | yes | yes | yes | no |
+| qwenimage21 (Qwen-Image-2.1) | 1328 (native 2048) | 40 | 1 (true CFG above 1) | yes | yes | no | no |
 
-Qwen-Image-2.1 (`QwenImage21Pipeline`, 2048 px, 40 steps) needs diffusers from git main, not 0.40. The backend refuses it with "QwenImage21Pipeline needs a newer diffusers".
+Qwen-Image-2.1 (`QwenImage21Pipeline`) is not in diffusers 0.40, so it runs only on the MLX engine (see below). Without
+mlx the backend refuses it with "QwenImage21Pipeline needs a newer diffusers than 0.40.0". The default size is 1328 because
+2048² takes about 45 min per image on an M4 Pro (1328² about 13 min, 1024² about 7 min).
 
 Apple Silicon settings:
 - Device is `mps`. `PYTORCH_ENABLE_MPS_FALLBACK=1` is set.
 - DiT families load in bf16. SD 1.5/SDXL load in fp16; the SDXL VAE upcasts itself.
 - Attention is SDPA. Attention slicing is on only with 16 GB of RAM or less.
-- Engine for zimage and flux2 diffusers folders: the first of diffusers bf16, MLX (mflux) 8-bit, MLX 4-bit whose measured
-  peak at 1024² (`DIT_PEAK_GB`: Z-Image 30.5 / 15.1 / 10.4 GB, FLUX.2 23 / 13.3 / 9.6 GB) is at most 75% of RAM.
-  When none fits, the job fails with `<model> needs about N GB of RAM`.
+- Engine for zimage, flux2, flux and qwenimage21 diffusers folders: the first of diffusers bf16, MLX (mflux) 8-bit,
+  MLX 4-bit whose measured peak (`DIT_PEAK_GB`, bf16 / q8 / q4) is at most 75% of RAM:
+  Z-Image 30.5 / 15.1 / 10.4 GB, FLUX.2 23 / 13.3 / 9.6 GB, FLUX.1 39.6 / 22.2 / 14.4 GB (all at 1024²),
+  Qwen-Image-2.1 — / 28.5 / 25.1 GB (the most at any size up to 2048²; no diffusers engine).
+  When none fits, the job fails with `<model> needs about N GB of RAM` (`N` = q4 peak / 0.75, e.g. FLUX.1 20, Qwen-Image-2.1 34).
   Other families and single-file checkpoints always use diffusers.
 
-  | RAM | zimage | flux2 |
-  |---|---|---|
-  | ≤ 16 GB | MLX 4-bit (~10 GB peak) | MLX 4-bit (~10 GB) |
-  | 24 GB | MLX 8-bit (~15 GB) | MLX 8-bit (~13 GB) |
-  | 32 GB | MLX 8-bit | diffusers bf16 |
-  | 48 GB | diffusers bf16 + compile | diffusers bf16 + compile |
+  | RAM | zimage | flux2 | flux | qwenimage21 |
+  |---|---|---|---|---|
+  | 16 GB | MLX 4-bit (~10 GB peak) | MLX 4-bit (~10 GB) | needs about 20 GB | needs about 34 GB |
+  | 24 GB | MLX 8-bit (~15 GB) | MLX 8-bit (~13 GB) | MLX 4-bit (~14 GB) | needs about 34 GB |
+  | 32 GB | MLX 8-bit | diffusers bf16 | MLX 8-bit (~22 GB) | needs about 34 GB |
+  | 48 GB | diffusers bf16 + compile | diffusers bf16 + compile | MLX 8-bit | MLX 8-bit (~28 GB) |
 
-- On diffusers, zimage and flux2 transformers get `torch.compile` when RAM is at least 1.5× that peak (Z-Image 46 GB,
-  FLUX.2 35 GB): about 9–15% faster per image. The first step at each new size compiles for ~10 s. If a compiled call fails,
+- On diffusers, these transformers get `torch.compile` when RAM is at least 1.5× the bf16 peak (Z-Image 46 GB,
+  FLUX.2 35 GB, FLUX.1 60 GB): about 9–15% faster per image. The first step at each new size compiles for ~10 s. If a compiled call fails,
   the backend logs it to stderr and reruns that image eagerly, and the model stays eager. `DIFFUSIONBEE_COMPILE=0` turns it off.
 - `DIFFUSIONBEE_RAM_GB=<GB>` in the backend's environment replaces the detected RAM for these choices (and attention slicing),
   to test the tiers on a bigger Mac or to force the MLX engine. The app passes its environment through to the backend.
 - The MLX engine runs txt2img and img2img. Inpaint and LoRA jobs fail with
-  `inpaint is not supported for zimage on the low-memory MLX engine this Mac uses` (or `LoRA …`); ControlNet is SD 1.5/SDXL only anyway.
+  `inpaint is not supported for zimage on the low-memory MLX engine this Mac uses` (or `LoRA …`; qwenimage21 says
+  `on the MLX engine`, its only engine); ControlNet is SD 1.5/SDXL only anyway.
+  FLUX.1 dev vs schnell comes from the transformer's `guidance_embeds`. Qwen-Image-2.1 runs true CFG only when cfg > 1,
+  with the negative prompt (a blank one when empty).
   `small_mod_seed` is ignored, a seed gives a different image than on diffusers, and flux2 img2img starts from the noised
   input image instead of using it as a reference image. Without mlx installed (dev venv) these families use diffusers.

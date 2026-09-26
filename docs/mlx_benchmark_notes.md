@@ -109,9 +109,9 @@ Freeing the text encoder is the one lever that moves the transient:
 | FLUX.2-klein-4B (+ Qwen3-4B TE), 4 steps | yes | diffusers bf16 + compile: 21.8 s, 22.8 GB | mflux q8 + tiling: 24.2 s, 13.3 GB | **mflux q4 + tiling: 24.3 s, 9.6 GB** | parity (22.1 vs 23.2 s eager, 21.8 s compiled) | Quantization costs almost no speed on either engine |
 | SDXL base, 30 steps, cfg 6 | yes | diffusers fp16: 59.5 s, 17.6 GB | same | same (the backend already slices attention for UNets when RAM ≤16 GB) | parity: mlx-examples 56.6–60.1 s (1.83–1.94 s/step) vs 59.5 s | MLX uses more memory: 20.3 GB with the cache capped (35.8 GB uncapped) vs 17.6. Not worth vendoring example code with a different (Euler-ancestral) sampler |
 | SD1.5 | no | diffusers | diffusers | diffusers | – | 1 GB-class UNet at 512²: memory isn't a problem. No mflux support. Inferred from SDXL: MLX would bring ≤5% |
-| FLUX.1-schnell (12B + T5-XXL) | no (not cached, ~34 GB) | diffusers bf16 | diffusers needs ~33 GB+ in bf16, so it doesn't fit | not a 16 GB model on diffusers | – | mflux supports FLUX.1, so the same adapter could add q4 (~7 GB transformer + T5) later. Low priority: FLUX.2-klein is the better small-RAM model |
+| FLUX.1 schnell / dev (12B + T5-XXL) | yes (below) | 32–48 GB: mflux q8: 57.6 s schnell, 420 s dev, 22.2 GB; diffusers bf16 (39.6 GB) only from 53 GB | mflux q4: 56.0 s, 14.4 GB | not a 16 GB model (needs about 20 GB) | MLX q8 57.6 s vs eager diffusers 62.4 s (which was swapping) | diffusers bf16 swaps on 48 GB (39.6 GB peak, +3 GB swap) |
 | SD3.5-medium (2.5B MMDiT + T5) | no (gated, not cached) | diffusers | diffusers | diffusers | – | mflux has no SD3. Memory is manageable in diffusers (T5 can be dropped) |
-| Qwen-Image-2.1 (~20B MMDiT + Qwen2.5-VL TE) | no (not cached, ~40 GB+) | **mflux** (q8 or bf16) | mflux q4 (estimate ~15–18 GB, tight) | not a 16 GB model | – | diffusers 0.40 has no pipeline for it, so mflux 0.20 is the only engine. Needs a new `qwenimage21` family |
+| Qwen-Image-2.1 (7.1B MMDiT + 8.8B Qwen3-VL TE) | yes (below) | 36–48 GB: **mflux q8**, 28.5 GB; below 34 GB it doesn't fit | not a 24 GB model (q4 25.1 GB) | not a 16 GB model | – | diffusers 0.40 has no pipeline for it, so mflux 0.20 is the only engine (`qwenimage21` family). mflux never quantizes the 17.5 GB bf16 text encoder, so q4 saves only 3.4 GB |
 
 ## Measurements (all clean)
 
@@ -184,6 +184,32 @@ f2_mflux_bf16_c (25.3 s), f2_mflux_q8 (27.0 s, contended), f2_mflux_q4 (26.8 s, 
 | sdxl_mlx_c2 | mlx-examples | same, `mx.set_cache_limit(2 GB)` | 1.1 | 1.94 | 60.1 | 1.8 | – | 20.3 |
 
 Both SDXL images show a similar fox. PSNR across engines is 10 dB, which is expected because the samplers and RNGs differ. Capping the cache left the output bit-identical.
+
+### FLUX.1 and Qwen-Image-2.1 (2026-09-26, mflux 0.20.0, the backend's own Engine / MfluxPipe)
+
+Same prompt and seed. Measured with a script that drives `Engine.prepare` / `render` (mflux runs with VAE tiling, as
+in the backend). Peak is the lifetime peak memory footprint from `/usr/bin/time -l` (it includes load). Total is per image
+and includes text encoding and decode. The OS file cache was warm. Swap in use was 2–8 GB from other apps.
+
+| Run | Engine | Steps / cfg / size | Load s | Total s | Lifetime peak GB | Notes |
+|---|---|---|---|---|---|---|
+| f1s_bf16 | diffusers bf16 eager | 4 / 0 / 1024 | 28.8 | 62.4 [62.4, 64.4] | 39.6 | swap grew 5.3 → 8.3 GB: over 75% of 48 GB |
+| f1s_q8 | mflux q8 | 4 / 0 / 1024 | 6.5 | **57.6** [57.6, 58.1] | 22.2 | |
+| f1s_q4 | mflux q4 | 4 / 0 / 1024 | 6.3 | 56.0 [56.0, 57.1] | **14.4** | |
+| f1dev_q8 | mflux q8 | 28 / 3.5 / 1024 | 6.1 | 419.7 (14.9 s/step) | 22.1 | |
+| q21_q8_1024 | mflux q8 | 40 / 1 / 1024 | 7.6 | 472.4 (11.8 s/step) | 28.4 | |
+| q21_q4_1024 | mflux q4 | 40 / 1 / 1024 | 7.0 | 423.6 (10.6 s/step) | 25.1 | |
+| q21_q8_1328 | mflux q8 | 40 / 1 / 1328 | 6.7 | 775.5 (19.4 s/step) | 28.3 | the catalog default size |
+| q21_q8_2048 | mflux q8 | 40 / 1 / 2048 | 6.7 | 2639.8 (66 s/step) | 28.3 | native size |
+| q21_q4_2048 | mflux q4 | 40 / 1 / 2048 | 7.2 | 2716.2 | 24.8 | |
+
+- FLUX.1: q8 and q4 give clean images of the same quality (PSNR q4 vs q8 20.3 dB). Against diffusers it is ~10 dB because
+  mflux draws different noise, so the composition differs. dev at q8 gives a good golden-hour fox.
+  Compile doesn't apply on 48 GB (it needs 1.5 × 39.6 = 60 GB).
+- Qwen-Image-2.1: q8 at 2048² is excellent (sharp fur, no artifacts). q4 is the same quality with slightly less golden light.
+  At 1024² both are clean, q4 slightly more saturated. The peak barely depends on size or bits because the
+  17.5 GB bf16 Qwen3-VL text encoder (mflux `skip_quantization`) dominates. bf16 was not run: 33 GB of weights plus
+  activations is about 40–46 GB, and diffusers 0.40 can't run it either, so `DIT_PEAK_GB` records it as `None`.
 
 ## Findings that matter for the backend today (with or without MLX)
 
