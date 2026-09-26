@@ -33,7 +33,7 @@ IMAGES_DIR = DB_HOME / "images"
 # family -> (default size, steps, cfg); used when the job leaves them out
 FAMILIES = {
     "sd15": (512, 25, 7.5), "sdxl": (1024, 30, 6.0), "sd3": (1024, 40, 4.5), "flux": (1024, 28, 3.5),
-    "flux2": (1024, 4, 1.0), "zimage": (1024, 9, 0.0), "qwenimage": (1328, 50, 4.0),
+    "flux2": (1024, 4, 1.0), "zimage": (1024, 8, 0.0), "qwenimage": (1328, 50, 4.0),
 }
 DIT_FAMILIES = {"sd3", "flux", "flux2", "zimage", "qwenimage"}  # loaded in bf16
 CLASS_FAMILIES = [("StableDiffusionXL", "sdxl"), ("StableDiffusion3", "sd3"), ("StableDiffusion", "sd15"),

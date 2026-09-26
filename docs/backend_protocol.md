@@ -119,7 +119,7 @@ Steps and cfg follow the Hugging Face model cards.
 | sd3 (3.5 Medium) | 1024 | 40 | 4.5 | yes | yes | yes | no |
 | flux (FLUX.1) | 1024 | 4 schnell / 28 dev | 0 schnell / 3.5 dev (distilled guidance) | no | yes | yes | no |
 | flux2 (FLUX.2 klein) | 1024 | 4 | 1 | no | yes (reference image) | no | no |
-| zimage (Z-Image-Turbo) | 1024 | 9 (= 8 DiT passes) | 0 | no | yes | yes | no |
+| zimage (Z-Image-Turbo) | 1024 | 8 | 0 | no | yes | yes | no |
 | qwenimage (Qwen-Image, Qwen-Image-2512) | 1328 | 50 | 4 (true CFG) | yes | yes | yes | no |
 
 Qwen-Image-2.1 (`QwenImage21Pipeline`, 2048 px, 40 steps) needs diffusers from git main, not 0.40. The backend refuses it with "QwenImage21Pipeline needs a newer diffusers".

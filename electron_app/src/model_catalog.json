@@ -5,7 +5,7 @@
         "sd3":       { "default_steps": 40, "default_guidance": 4.5, "default_size": 1024, "supports_negative_prompt": true,  "supports_img2img": true, "supports_inpaint": true,  "supports_controlnet": false },
         "flux":      { "default_steps": 28, "default_guidance": 3.5, "default_size": 1024, "supports_negative_prompt": false, "supports_img2img": true, "supports_inpaint": true,  "supports_controlnet": false },
         "flux2":     { "default_steps": 4,  "default_guidance": 1,   "default_size": 1024, "supports_negative_prompt": false, "supports_img2img": true, "supports_inpaint": false, "supports_controlnet": false },
-        "zimage":    { "default_steps": 9,  "default_guidance": 0,   "default_size": 1024, "supports_negative_prompt": false, "supports_img2img": true, "supports_inpaint": true, "supports_controlnet": false },
+        "zimage":    { "default_steps": 8,  "default_guidance": 0,   "default_size": 1024, "supports_negative_prompt": false, "supports_img2img": true, "supports_inpaint": true, "supports_controlnet": false },
         "qwenimage": { "default_steps": 50, "default_guidance": 4,   "default_size": 1328, "supports_negative_prompt": true,  "supports_img2img": true, "supports_inpaint": true, "supports_controlnet": false }
     },
     "models": [
