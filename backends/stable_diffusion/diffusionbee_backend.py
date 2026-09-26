@@ -41,7 +41,8 @@ DIT_FAMILIES = {"sd3", "flux", "flux2", "zimage", "qwenimage"}  # loaded in bf16
 # bf16 = diffusers (None: diffusers can't run it), q8/q4 = the mflux (MLX) engine. pick_tier() takes the first that
 # fits in 75% of RAM. Unlisted families always use diffusers; measure one to add it.
 DIT_PEAK_GB = {"zimage": {"bf16": 30.5, "q8": 15.1, "q4": 10.4},
-               "flux2": {"bf16": 23, "q8": 13.3, "q4": 9.6}}
+               "flux2": {"bf16": 23, "q8": 13.3, "q4": 9.6},
+               "flux": {"bf16": 39.6, "q8": 22.2, "q4": 14.4}}
 TIERS = ("bf16", "q8", "q4")
 CLASS_FAMILIES = [("StableDiffusionXL", "sdxl"), ("StableDiffusion3", "sd3"), ("StableDiffusion", "sd15"),
                   ("Flux2", "flux2"), ("Flux", "flux"), ("ZImage", "zimage"), ("QwenImage", "qwenimage")]

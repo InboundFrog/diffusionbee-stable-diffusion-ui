@@ -2,6 +2,7 @@
 The end-to-end tests drive the real stdin/stdout protocol with hf-internal-testing/tiny-sdxl-pipe (11 MB, downloaded once)."""
 import glob
 import json
+import math
 import os
 import subprocess
 import sys
@@ -92,10 +93,19 @@ def test_family_detection():
 def test_engine_tiers():
     # RAM tier (GB) -> engine per family, as in docs/backend_protocol.md
     want = {"zimage": ("q4", "q8", "q8", "bf16"), "flux2": ("q4", "q8", "bf16", "bf16"),
-            "sdxl": ("bf16",) * 4}
+            "flux": (None, "q4", "q8", "q8"), "sdxl": ("bf16",) * 4}
     for family, tiers in want.items():
         assert tuple(db.pick_tier(family, ram) for ram in (16, 24, 32, 48)) == tiers, family
     assert db.pick_tier("zimage", 8) is None
+
+    # nothing fits: a clear error before any weights are read
+    snap = os.path.join(TMP, "models--Tongyi-MAI--Z-Image-Turbo", "snapshots", "abc")
+    os.makedirs(snap, exist_ok=True)
+    json.dump({"_class_name": "ZImagePipeline"}, open(os.path.join(snap, "model_index.json"), "w"))
+    e = db.Engine()
+    e.ram = 8
+    with pytest.raises(ValueError, match="^Z-Image-Turbo needs about 14 GB of RAM$"):
+        e.load_base(snap)
 
 
 def test_pick_files():
@@ -189,16 +199,29 @@ def test_end_to_end():
         b.close()
 
 
-def test_mlx_engine():
-    # 16 GB puts flux2 on the mflux q4 engine: protocol progress, image, errors and a stop inside the denoising loop
+def cached_snapshot(*repos):
+    """Snapshot folder of the first fully downloaded repo in the HF cache, else skip the test."""
+    from huggingface_hub.constants import HF_HUB_CACHE
+    for repo in repos:
+        folder = os.path.join(HF_HUB_CACHE, "models--" + repo.replace("/", "--"))
+        for snap in glob.glob(os.path.join(folder, "snapshots", "*", "transformer", "config.json")):
+            snap = os.path.dirname(os.path.dirname(snap))
+            if not glob.glob(os.path.join(folder, "blobs", "*.incomplete")):
+                return snap
+    pytest.skip(f"{' or '.join(repos)} is not in the HF cache")
+
+
+@pytest.mark.parametrize("family,repos", [
+    ("flux2", ["black-forest-labs/FLUX.2-klein-4B"]),
+    ("flux", ["black-forest-labs/FLUX.1-schnell", "black-forest-labs/FLUX.1-dev"])])
+def test_mlx_families(family, repos):
+    # each mflux family at its q4 RAM tier: protocol progress, image, inpaint/LoRA errors, a stop inside the denoising loop
     pytest.importorskip("mlx.core")
-    snaps = glob.glob(os.path.join(os.environ["HF_HOME"], "hub", "models--black-forest-labs--FLUX.2-klein-4B", "snapshots", "*"))
-    if not snaps:
-        pytest.skip("FLUX.2-klein-4B is not in the HF cache")
-    b = Backend(DIFFUSIONBEE_RAM_GB="16")
+    snap = cached_snapshot(*repos)
+    b = Backend(DIFFUSIONBEE_RAM_GB=str(math.ceil(db.DIT_PEAK_GB[family]["q4"] / 0.75)))
     try:
-        common = dict(prompt="a red fox", model_path=snaps[0], img_width=512, img_height=512, seed=7)
-        imgs, errs, lines = b.job(**common, num_steps=2)
+        common = dict(prompt="a red fox", model_path=snap, img_width=512, img_height=512, seed=7, num_steps=2)
+        imgs, errs, lines = b.job(**common)
         assert not errs and len(imgs) == 1, lines[-20:]
         assert [x for x in lines if x.startswith("sdbk dnpr")] == ["sdbk dnpr 50", "sdbk dnpr 100"]
         img = np.asarray(Image.open(imgs[0]["generated_img_path"]).convert("RGB"))
@@ -206,8 +229,9 @@ def test_mlx_engine():
 
         red = os.path.join(TMP, "red512.png")
         Image.new("RGB", (512, 512), (255, 0, 0)).save(red)
-        _, errs, _ = b.job(**common, num_steps=2, input_img=red, mask_image=red)
-        assert errs and "low-memory MLX engine" in errs[0], errs  # diffusers would say "inpaint is not supported"
+        for extra, what in ((dict(input_img=red, mask_image=red), "inpaint"), (dict(lora_paths=[red]), "LoRA")):
+            _, errs, _ = b.job(**common, **extra)
+            assert errs and errs[0].startswith(f"{what} is not supported for {family} on the"), errs
 
         b.send("b2py t2im " + json.dumps(dict(common, num_steps=20, num_imgs=3)))
         b.read_until("sdbk dnpr")
@@ -220,6 +244,7 @@ def test_mlx_engine():
 
 def test_compile_falls_back_to_eager():
     e = db.Engine()
+    e.ram = 64  # FLUX.1 bf16 fits: the diffusers engine, not mflux
     model = db.fetch_repo("hf-internal-testing/tiny-flux-pipe")
     job = e.prepare(dict(prompt="a cat", model_path=model, num_steps=2, img_width=64, img_height=64))
 

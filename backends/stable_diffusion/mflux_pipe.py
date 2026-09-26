@@ -1,6 +1,7 @@
-"""Low-RAM engine for zimage/flux2: an mflux (MLX) model behind the part of the diffusers pipeline call that
+"""Low-RAM engine for zimage/flux2/flux: an mflux (MLX) model behind the part of the diffusers pipeline call that
 Engine.render() uses (prompt/steps/guidance/size/generator/callback_on_step_end, image+strength for img2img,
 .images[0], pipe._interrupt to stop). See docs/mlx_benchmark_notes.md. Raises ImportError without mlx/mflux."""
+import json
 import os
 import tempfile
 from types import SimpleNamespace
@@ -13,7 +14,8 @@ mx.set_cache_limit(2 << 30)  # MLX keeps freed buffers by default: +20 GB after 
 
 def load(family, src, bits):
     """src: the diffusers snapshot dir load_base() gets; mflux converts and quantizes it at load (3-9 s).
-    ponytail: assumes the catalog's Z-Image-Turbo / FLUX.2-klein-4B; other variants need their mflux ModelConfig."""
+    ponytail: assumes the catalog's Z-Image-Turbo / FLUX.2-klein-4B / FLUX.1 dev or schnell;
+    other variants need their mflux ModelConfig."""
     from mflux.models.common.vae.tiling_config import TilingConfig
     if family == "zimage":
         from mflux.models.z_image import ZImageTurbo
@@ -21,6 +23,11 @@ def load(family, src, bits):
     elif family == "flux2":
         from mflux.models.flux2 import Flux2Klein
         model = Flux2Klein(quantize=bits, model_path=src)
+    elif family == "flux":  # FLUX.1: dev and Krea-dev have a guidance embedding, schnell doesn't
+        from mflux.models.common.config.model_config import ModelConfig
+        from mflux.models.flux.variants.txt2img.flux import Flux1
+        dev = json.load(open(os.path.join(src, "transformer", "config.json"))).get("guidance_embeds")
+        model = Flux1(quantize=bits, model_path=src, model_config=ModelConfig.dev() if dev else ModelConfig.schnell())
     else:
         raise ValueError(f"No MLX engine for {family}")
     mx.eval(model.parameters())  # quantize now; left lazy, the first image holds bf16 + q4 (Z-Image: 30 GB peak)
