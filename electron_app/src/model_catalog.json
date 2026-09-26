@@ -15,7 +15,7 @@
             "description": "Fast 8-step photorealistic model with good text rendering. Default model.",
             "hf_repo": "Tongyi-MAI/Z-Image-Turbo",
             "size_gb": 32.8,
-            "min_ram_gb": 24,
+            "min_ram_gb": 16,
             "model_meta_data": { "type": "sd_model", "family": "zimage" }
         },
         {
