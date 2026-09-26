@@ -11,9 +11,9 @@ ENTRY = os.path.join(ROOT, 'backends', 'stable_diffusion', 'diffusionbee_backend
 
 # diffusers/transformers/peft resolve most classes lazily by string (_LazyModule), so static
 # analysis misses them; collect everything. Their import-time `importlib.metadata.version(...)`
-# checks need the .dist-info of each dependency too.
+# checks need the .dist-info of each dependency too. mlx: collect_all also picks up libmlx.dylib and mlx.metallib.
 LAZY_PKGS = ['diffusers', 'transformers', 'huggingface_hub', 'tokenizers', 'safetensors',
-             'accelerate', 'peft', 'sentencepiece']
+             'accelerate', 'peft', 'sentencepiece', 'mlx', 'mflux']
 METADATA = ['torch', 'numpy', 'Pillow', 'regex', 'requests', 'tqdm', 'filelock', 'packaging',
             'pyyaml', 'protobuf', 'opencv-python-headless', 'onnxruntime', 'psutil', 'jinja2']
 

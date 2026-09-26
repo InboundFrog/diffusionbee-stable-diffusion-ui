@@ -14,6 +14,7 @@ ROOT=$PWD
 OUT=$ROOT/dist                               # gitignored
 BACKEND=$OUT/diffusionbee_backend            # -> BACKEND_BUILD_PATH -> Resources/core/
 REQS=backends/stable_diffusion/requirements.lock  # regenerate: MACOSX_DEPLOYMENT_TARGET=14.0 uv pip compile backends/stable_diffusion/requirements.txt --python-version 3.12 --python-platform aarch64-apple-darwin -o backends/stable_diffusion/requirements.lock
+MLX_PKGS="mlx==0.32.2 mlx-metal==0.32.2 mflux==0.20.0"  # low-RAM engine, --no-deps: see requirements.txt
 
 [ "$(uname -sm)" = "Darwin arm64" ] || { echo "error: build on an Apple Silicon Mac" >&2; exit 1; }
 command -v uv >/dev/null || { echo "error: install uv (brew install uv)" >&2; exit 1; }
@@ -22,6 +23,7 @@ echo "==> backend venv ($OUT/venv)"
 # Fresh venv every time, separate from the dev venv, so the bundle only has what REQS says.
 uv venv --clear --python 3.12 "$OUT/venv"
 uv pip install --python "$OUT/venv/bin/python" -r "$REQS" pyinstaller==6.22.3
+uv pip install --python "$OUT/venv/bin/python" --no-deps $MLX_PKGS
 
 echo "==> bundling backend ($BACKEND)"
 "$OUT/venv/bin/pyinstaller" --noconfirm --log-level WARN \
