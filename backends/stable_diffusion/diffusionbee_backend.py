@@ -36,6 +36,9 @@ FAMILIES = {
     "flux2": (1024, 4, 1.0), "zimage": (1024, 8, 0.0), "qwenimage": (1328, 50, 4.0),
 }
 DIT_FAMILIES = {"sd3", "flux", "flux2", "zimage", "qwenimage"}  # loaded in bf16
+# ponytail: diffusers bf16 peak (GB) at 1024², measured on an M4 Pro (docs/mlx_benchmark_notes.md). Above 75% of RAM
+# the family runs on the MLX engine instead. Unlisted families always use diffusers; measure one to add it.
+DIT_PEAK_GB = {"zimage": 30.5, "flux2": 23}
 CLASS_FAMILIES = [("StableDiffusionXL", "sdxl"), ("StableDiffusion3", "sd3"), ("StableDiffusion", "sd15"),
                   ("Flux2", "flux2"), ("Flux", "flux"), ("ZImage", "zimage"), ("QwenImage", "qwenimage")]
 # single-file checkpoints: family -> (pipeline class, inpaint pipeline class)
@@ -59,6 +62,14 @@ CONFIG_EXTS = (".json", ".txt", ".model", ".jinja", ".tiktoken")  # configs, tok
 
 def out(line):
     print(line, flush=True)
+
+
+def ram_gb():
+    """Physical RAM, or DIFFUSIONBEE_RAM_GB: picks the engine as if the Mac had that much (test the tiers, or override)."""
+    try:
+        return float(os.environ["DIFFUSIONBEE_RAM_GB"])
+    except (KeyError, ValueError):
+        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1024 ** 3
 
 
 def one_line(e):
@@ -344,7 +355,8 @@ class Engine:
         import torch
         self.torch = torch
         self.device = "mps" if torch.backends.mps.is_available() else "cpu"
-        self.low_ram = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") <= 16 * 1024 ** 3
+        self.ram = ram_gb()
+        self.low_ram = self.ram <= 16
         self.base = self.base_key = self.family = self.cn = self.cn_path = None
         self.loras = ()
 
@@ -358,6 +370,8 @@ class Engine:
         gc.collect()
         if self.device == "mps":
             self.torch.mps.empty_cache()
+        if "mlx.core" in sys.modules:
+            sys.modules["mlx.core"].clear_cache()
 
     def load_base(self, src, family_hint=None):
         if src == self.base_key:
@@ -374,6 +388,18 @@ class Engine:
             if not hasattr(diffusers, cls_name):
                 raise ValueError(f"{cls_name} needs a newer diffusers than {diffusers.__version__}")
             family = family_hint or family_from_class(cls_name)
+            if DIT_PEAK_GB.get(family, 0) > 0.75 * self.ram:  # diffusers would swap: quantized MLX engine
+                try:
+                    import mflux_pipe
+                except ModuleNotFoundError as e:
+                    if e.name not in ("mlx", "mflux"):
+                        raise
+                else:
+                    bits = 4 if self.low_ram else 8
+                    print(f"{family}: MLX engine, {bits}-bit", file=sys.stderr, flush=True)
+                    self.base = mflux_pipe.load(family, src, bits)
+                    self.base_key, self.family = src, family
+                    return
             kw = dict(dtype=self.dtype("transformer" in index), use_safetensors=True)
             if "safety_checker" in index:
                 kw.update(safety_checker=None, requires_safety_checker=False)
@@ -534,9 +560,15 @@ class Engine:
             kw.update(controlnet_conditioning_scale=float(d.get("control_weight") or 1.0),
                       guess_mode=bool(d.get("controlnet_guess_mode")))
 
-        self.set_loras(d.get("lora_paths") or [], d.get("lora_weights"))
-        pipe = self.mode_pipe(mode, controlnet)
-        self.set_scheduler(pipe, d)
+        if type(self.base).__name__ == "MfluxPipe":
+            if mode == "inpaint" or d.get("lora_paths"):  # ponytail: mflux takes lora_paths at load; wire up when asked
+                what = "inpaint" if mode == "inpaint" else "LoRA"
+                raise ValueError(f"{what} is not supported for {family} on the low-memory MLX engine this Mac uses")
+            pipe = self.base
+        else:
+            self.set_loras(d.get("lora_paths") or [], d.get("lora_weights"))
+            pipe = self.mode_pipe(mode, controlnet)
+            self.set_scheduler(pipe, d)
         params = call_params(pipe)
         if controlnet is not None:
             kw["control_image" if "control_image" in params else "image"] = control

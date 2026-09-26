@@ -128,3 +128,20 @@ Apple Silicon settings:
 - Device is `mps`. `PYTORCH_ENABLE_MPS_FALLBACK=1` is set.
 - DiT families load in bf16. SD 1.5/SDXL load in fp16; the SDXL VAE upcasts itself.
 - Attention is SDPA. Attention slicing is on only with 16 GB of RAM or less.
+- Engine for zimage and flux2 diffusers folders: the MLX engine (mflux, quantized) when the family's diffusers bf16 peak
+  (Z-Image 30.5 GB, FLUX.2 23 GB at 1024²) is over 75% of RAM; 4-bit with 16 GB of RAM or less, else 8-bit. Otherwise diffusers.
+  Other families and single-file checkpoints always use diffusers.
+
+  | RAM | zimage | flux2 |
+  |---|---|---|
+  | ≤ 16 GB | MLX 4-bit (~10 GB peak) | MLX 4-bit (~10 GB) |
+  | 24 GB | MLX 8-bit (~15 GB) | MLX 8-bit (~13 GB) |
+  | 32 GB | MLX 8-bit | diffusers bf16 |
+  | 48 GB | diffusers bf16 | diffusers bf16 |
+
+- `DIFFUSIONBEE_RAM_GB=<GB>` in the backend's environment replaces the detected RAM for these choices (and attention slicing),
+  to test the tiers on a bigger Mac or to force the MLX engine. The app passes its environment through to the backend.
+- The MLX engine runs txt2img and img2img. Inpaint and LoRA jobs fail with
+  `inpaint is not supported for zimage on the low-memory MLX engine this Mac uses` (or `LoRA …`); ControlNet is SD 1.5/SDXL only anyway.
+  `small_mod_seed` is ignored, a seed gives a different image than on diffusers, and flux2 img2img starts from the noised
+  input image instead of using it as a reference image. Without mlx installed (dev venv) these families use diffusers.

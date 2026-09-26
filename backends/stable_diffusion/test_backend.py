@@ -1,5 +1,6 @@
 """Backend tests. Run: backends/.venv/bin/python -m pytest -q backends/stable_diffusion/test_backend.py
 The end-to-end tests drive the real stdin/stdout protocol with hf-internal-testing/tiny-sdxl-pipe (11 MB, downloaded once)."""
+import glob
 import json
 import os
 import subprocess
@@ -7,6 +8,7 @@ import sys
 import tempfile
 
 import numpy as np
+import pytest
 from PIL import Image
 from safetensors.numpy import save_file
 
@@ -19,9 +21,9 @@ TMP = tempfile.mkdtemp()
 
 
 class Backend:
-    def __init__(self):
+    def __init__(self, **env):
         self.p = subprocess.Popen([sys.executable, BACKEND], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                  text=True, bufsize=1)
+                                  text=True, bufsize=1, env=dict(os.environ, **env))
         self.read_until("sdbk inrd")
 
     def read_until(self, prefix):
@@ -174,6 +176,35 @@ def test_end_to_end():
         b.send("b2py t2im __stop__")
         lines = b.read_until("sdbk inrd")
         assert sum(x.startswith("sdbk nwim") for x in lines) < 50
+    finally:
+        b.close()
+
+
+def test_mlx_engine():
+    # 16 GB puts flux2 on the mflux q4 engine: protocol progress, image, errors and a stop inside the denoising loop
+    pytest.importorskip("mlx.core")
+    snaps = glob.glob(os.path.join(os.environ["HF_HOME"], "hub", "models--black-forest-labs--FLUX.2-klein-4B", "snapshots", "*"))
+    if not snaps:
+        pytest.skip("FLUX.2-klein-4B is not in the HF cache")
+    b = Backend(DIFFUSIONBEE_RAM_GB="16")
+    try:
+        common = dict(prompt="a red fox", model_path=snaps[0], img_width=512, img_height=512, seed=7)
+        imgs, errs, lines = b.job(**common, num_steps=2)
+        assert not errs and len(imgs) == 1, lines[-20:]
+        assert [x for x in lines if x.startswith("sdbk dnpr")] == ["sdbk dnpr 50", "sdbk dnpr 100"]
+        img = np.asarray(Image.open(imgs[0]["generated_img_path"]).convert("RGB"))
+        assert img.shape == (512, 512, 3) and img.std() > 10
+
+        red = os.path.join(TMP, "red512.png")
+        Image.new("RGB", (512, 512), (255, 0, 0)).save(red)
+        _, errs, _ = b.job(**common, num_steps=2, input_img=red, mask_image=red)
+        assert errs and "low-memory MLX engine" in errs[0], errs  # diffusers would say "inpaint is not supported"
+
+        b.send("b2py t2im " + json.dumps(dict(common, num_steps=20, num_imgs=3)))
+        b.read_until("sdbk dnpr")
+        b.send("b2py t2im __stop__")
+        lines = b.read_until("sdbk inrd")
+        assert not any(x.startswith(("sdbk nwim", "sdbk errr")) for x in lines), lines[-20:]
     finally:
         b.close()
 
