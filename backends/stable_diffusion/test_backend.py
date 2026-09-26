@@ -115,6 +115,19 @@ def test_refuses_unsafe_and_legacy_models():
             assert ("TDict" in str(e)) == bad.endswith(".tdict")
 
 
+def test_offline_uses_cached_snapshot():
+    # download_model pins revision=<sha>, which leaves no refs/main; offline it must still find the newest snapshot
+    hf = tempfile.mkdtemp()
+    snaps = os.path.join(hf, "hub", "models--org--model", "snapshots")
+    for t, rev in ((1000, "old"), (2000, "new")):
+        os.makedirs(os.path.join(snaps, rev))
+        os.utime(os.path.join(snaps, rev), (t, t))
+    r = subprocess.run([sys.executable, BACKEND, "download_model", "org/model"], capture_output=True, text=True,
+                       env=dict(os.environ, HF_HOME=hf, HF_HUB_OFFLINE="1"))
+    assert r.returncode == 0, r.stderr[-2000:]
+    assert r.stdout.splitlines()[-1] == "done " + os.path.join(snaps, "new")
+
+
 def test_end_to_end():
     lines = run_cmd("download_model", "hf-internal-testing/tiny-sdxl-pipe")
     model = lines[-1][len("done "):]

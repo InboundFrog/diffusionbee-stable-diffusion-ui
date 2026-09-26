@@ -166,8 +166,13 @@ def fetch_repo(repo, variant="fp16", progress=None):
         info = HfApi().model_info(repo, files_metadata=True)
     except RepositoryNotFoundError:
         raise ValueError(f"Model repo not found (or gated without a token): {repo}")
-    except Exception:
-        return snapshot_download(repo, local_files_only=True)  # offline: use the cached copy
+    except Exception:  # offline: use the newest cached snapshot. Not snapshot_download(local_files_only=True):
+        # downloads below pin revision=sha, which writes no refs/main for it to resolve
+        from huggingface_hub.constants import HF_HUB_CACHE
+        snaps = glob.glob(os.path.join(HF_HUB_CACHE, "models--" + repo.replace("/", "--"), "snapshots", "*"))
+        if not snaps:
+            raise
+        return max(snaps, key=os.path.getmtime)
     try:
         sizes = {s.rfilename: s.size or 0 for s in info.siblings}
         components = None
