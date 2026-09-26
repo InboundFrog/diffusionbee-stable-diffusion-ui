@@ -55,7 +55,7 @@ Generation fields:
 | `num_imgs` | images per job |
 | `seed` | < 1 or missing: random. Image *i* uses `seed + 1234·i` |
 | `small_mod_seed` | ≥ 0: the seed stays fixed and image *i* slerps 10% of the noise from seed `small_mod_seed + 1234·i` into it |
-| `scheduler` | `karras` (DPM++ 2M Karras, default), `ddim`, `lmsd` (runs Euler: LMS needs scipy), `pndm`, `k_euler_ancestral`, `k_euler`. SD 1.5 / SDXL only; flow-matching families keep their scheduler |
+| `scheduler` | `karras` (DPM++ 2M Karras, default), `ddim`, `lmsd` (runs Euler: LMS needs scipy), `pndm`, `k_euler_ancestral`, `k_euler`, `lcm` (for LCM-LoRA, 4–8 steps, cfg 1–2). SD 1.5 / SDXL only; flow-matching families keep their scheduler |
 | `do_v_prediction` | sets `prediction_type="v_prediction"` on the scheduler (SD 2.x-style v models) |
 | `is_clip_skip_2` | sd15 only (A1111 "clip skip 2") |
 | `img_width`, `img_height` | txt2img size, family default when missing. Rounded down to multiples of 16, area capped at 2048² |

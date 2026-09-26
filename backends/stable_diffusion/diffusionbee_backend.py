@@ -51,6 +51,7 @@ SCHEDULERS = {  # UI name -> diffusers scheduler (UNet families only; flow-match
     "pndm": ("PNDMScheduler", {"skip_prk_steps": True}),
     "k_euler_ancestral": ("EulerAncestralDiscreteScheduler", {}),
     "k_euler": ("EulerDiscreteScheduler", {}),
+    "lcm": ("LCMScheduler", {}),  # for LCM-LoRA: 4-8 steps, cfg 1-2
 }
 PICKLE_EXTS = (".ckpt", ".pt", ".pth", ".bin", ".pkl", ".pickle")
 CONFIG_EXTS = (".json", ".txt", ".model", ".jinja", ".tiktoken")  # configs, tokenizers, templates

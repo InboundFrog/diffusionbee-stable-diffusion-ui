@@ -193,7 +193,7 @@
                     {
                         "id": "scheduler",
                         "component": "Dropdown",
-                        "options": [ "karras", "ddim" , "lmsd" , "pndm" , "k_euler_ancestral", "k_euler" ],
+                        "options": [ "karras", "ddim" , "lmsd" , "pndm" , "k_euler_ancestral", "k_euler", "lcm" ],
                         "icon": "photo",
                         "output_type" : "str",
                         "default_value" : "karras",
