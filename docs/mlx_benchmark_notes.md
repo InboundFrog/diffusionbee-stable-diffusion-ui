@@ -197,7 +197,11 @@ Both SDXL images show a similar fox. PSNR across engines is 10 dB, which is expe
    - It costs ~8–11 s on the first image and recompiles per resolution.
    - Output drift vs eager is 37.8–39.2 dB, which is invisible.
    - Gains: Z-Image 1.14x, FLUX.2 1.06x, int8 Z-Image 1.12x, GGUF FLUX.2 1.30x.
-   - Needs checking inside the PyInstaller bundle: the Inductor cache dir and `torch._inductor` imports.
+   - In the PyInstaller bundle it needed two fixes (packaging/): the `torch/include/c10/metal` headers, which Inductor
+     inlines into its kernels ("failed to compile #include <c10/metal/utils.h>"), and absolute `co_filename`s via a
+     runtime hook. PyInstaller stores relative ones, so Dynamo can't tell torch internals from model code and fails
+     with "maximum recursion depth exceeded". Bundle, 1024², cold Inductor cache, shared machine: Z-Image 81.6 → 74.6 s
+     per image (first image +3.6 s), FLUX.2 25.9 → 21.9 s.
 3. **Z-Image fp16 gives an all-black (NaN) image.** It must stay bf16, which `DIT_FAMILIES` already does. Keep it that way.
 4. **Attention slicing is a no-op for the DiT families**: the Z-Image and FLUX.2 transformers have no `set_attention_slice`. The backend already limits it to UNets.
 5. **VAE tiling in diffusers doesn't help at 1024²** (29.6 vs 29.9 GB). MLX VAE tiling (`TilingConfig`) does: –4.5 GB (Z-Image) and –6 GB (FLUX.2), at the same speed, with no seams.

@@ -4,7 +4,7 @@
 # Build via ../build_mac.sh, or:
 #   pyinstaller --noconfirm --distpath DIST --workpath WORK packaging/diffusionbee_backend.spec
 import os
-from PyInstaller.utils.hooks import collect_all, copy_metadata
+from PyInstaller.utils.hooks import collect_all, collect_data_files, copy_metadata
 
 ROOT = os.path.abspath(os.path.join(SPECPATH, '..'))
 ENTRY = os.path.join(ROOT, 'backends', 'stable_diffusion', 'diffusionbee_backend.py')
@@ -23,6 +23,8 @@ for pkg in LAZY_PKGS:
     datas += d; binaries += b; hiddenimports += h
 for dist in METADATA:
     datas += copy_metadata(dist)
+# torch.compile on MPS inlines these into its Metal kernels; the torch hook leaves headers out
+datas += collect_data_files('torch', includes=['include/c10/metal/*.h'])
 
 a = Analysis(
     [ENTRY],
@@ -30,6 +32,7 @@ a = Analysis(
     datas=datas,
     binaries=binaries,
     hiddenimports=hiddenimports,
+    runtime_hooks=[os.path.join(SPECPATH, 'rthook_code_filenames.py')],  # torch.compile, see the hook
     excludes=['tkinter', 'matplotlib', 'IPython', 'pytest', 'tensorflow', 'jax', 'flax', 'triton'],
     # Keep .py sources next to the bytecode: torch/diffusers/transformers call inspect.getsource.
     module_collection_mode={p: 'pyz+py' for p in LAZY_PKGS},
