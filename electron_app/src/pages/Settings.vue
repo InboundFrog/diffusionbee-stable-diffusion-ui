@@ -23,7 +23,7 @@
         <div class="setting_box">
         <div class="settings_left">
         <h3>Hugging Face token</h3>
-        <p>Needed only for gated models (FLUX.1, SD 3.5). Accept the model license on huggingface.co first, then paste a read token here.</p>
+        <p>Needed only for gated models (FLUX.1, SD 3.5), and not if you have run <code>hf auth login</code>. Accept the model license on huggingface.co first, then paste a read token here.</p>
         </div>
 
         <div style="float:right;margin-right: 9px;align-self: center;" >

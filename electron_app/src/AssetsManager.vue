@@ -141,6 +141,19 @@ export default {
             })
         },
 
+        // any diffusers repo on huggingface.co: fetched into the HF cache (nothing to fetch if it's already there)
+        // and registered like an imported model, so Remove only forgets it. callback(error or undefined)
+        import_hf_model(repo, asset_id, on_progress, callback){
+            ipc_download(['download_hf_model', repo, 'fp16'], on_progress, (asset_path) => {
+                window.ipcRenderer.invoke('inspect_model', asset_path).then(result => {
+                    let err = result.success ? this.add_local_asset(asset_path, asset_id, result.info) : result.error
+                    if(!err)
+                        Vue.set(this.local_assets[asset_id], 'hf_repo', repo)
+                    callback(err)
+                })
+            }, callback)
+        },
+
         get_downloaded_asset_path(asset_id){
             return (this.downloaded_assets[asset_id] || this.local_assets[asset_id] || {}).asset_path
         },
@@ -210,13 +223,9 @@ export default {
             }
 
             if(asset_details.hf_repo){
-                let settings = ((this.$parent.app_state || {}).app_data || {}).settings || {}
-                if(asset_details.requires_hf_token && !settings.hf_token){
-                    on_error("This model is gated. Accept its license on huggingface.co and add a Hugging Face token in Settings.")
-                    return
-                }
                 this.set_hf_hidden(asset_id, false)
-                // the backend fetches the repo into the HF cache and returns the snapshot folder
+                // the backend fetches the repo into the HF cache and returns the snapshot folder. Gated repos use the
+                // Settings token or the `hf auth login` one; without either the backend reports the gate
                 ipc_download(['download_hf_model', asset_details.hf_repo, asset_details.variant || ""], on_progress, on_done, on_error)
                 return
             }

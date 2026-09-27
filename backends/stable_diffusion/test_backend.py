@@ -167,6 +167,14 @@ def test_cached_models():
     assert r.returncode == 0 and r.stdout == "", r.stdout + r.stderr[-2000:]
 
 
+def test_refuses_unsupported_pipeline(monkeypatch):
+    # Models page imports take any repo id: an unknown pipeline class stops at model_index.json, before the weights
+    repo = "hf-internal-testing/tiny-sdxl-pipe"
+    monkeypatch.setattr(db, "family_from_class", lambda name: None)
+    with pytest.raises(ValueError, match="StableDiffusionXLPipeline is not a supported model type"):
+        db.fetch_repo(repo)
+
+
 def test_end_to_end():
     lines = run_cmd("download_model", "hf-internal-testing/tiny-sdxl-pipe")
     model = lines[-1][len("done "):]

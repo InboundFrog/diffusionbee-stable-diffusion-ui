@@ -103,7 +103,10 @@ Each prints plain lines on stdout. On failure it exits non-zero and the last std
     The HF cache holds untouched downloads only: nothing but huggingface_hub downloads writes to it, and the app never
     deletes from it (Remove only forgets the model; `hf cache rm model/<org>/<name>` deletes the files). Anything
     derived from a model, such as future pre-quantized MLX weights, goes under `~/.diffusionbee`.
-  - The `HF_TOKEN` env var enables gated repos, and a gated repo without access gives a "gated: accept its license" error.
+  - A pipeline class with no model family (anything `family_from_class` doesn't know) is refused after `model_index.json`, before the weights.
+    The Models page's "Import From Hugging Face" takes any repo id, so this keeps it from fetching gigabytes the app can't use.
+  - Gated repos use the `HF_TOKEN` env var (the app sets it from Settings) or the `hf auth login` token.
+    A gated repo without access gives a "gated: accept its license" error.
   - When the Hub can't be reached, it falls back to the cached copy.
 - `diffusionbee_backend cached_models <repo_id[:variant]>...`
   prints `cached <repo_id> <snapshot folder>` for each repo whose files (the same set `download_model` picks, at the Hub's current revision) are all in the HF cache. It downloads nothing.

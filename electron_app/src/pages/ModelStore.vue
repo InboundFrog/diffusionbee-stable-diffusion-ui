@@ -2,7 +2,14 @@
     <div class="main_container">
 
         <div class="l_button button_colored button_medium" style="float:right;" @click="import_model_locally"> Import From Computer </div>
+        <div class="l_button button_colored button_medium" style="float:right;" @click="show_hf_import"> Import From Hugging Face </div>
         <p style="opacity:0.6"> Import a .safetensors model or LoRA, or a diffusers model folder. </p>
+        <div v-if="hf_cached_repos">
+            <input v-model.trim="hf_repo" list="hf_cached_repos" placeholder="org/model" @keyup.enter="import_hf_model" style="width: 360px">
+            <datalist id="hf_cached_repos"><option v-for="r in hf_cached_repos" :key="r" :value="r"></option></datalist>
+            <div class="l_button button_colored button_small" style="display:inline-block" @click="import_hf_model"> Import </div>
+            <p style="opacity:0.6"> A diffusers model repo id or huggingface.co link. The list has the ones already in the Hugging Face cache ({{hf_cached_repos.length}}); others are downloaded into it. </p>
+        </div>
         <hr>
 
         <h2 v-if="downloaded_models_list.length > 0 || is_local_model_importing"> My Models </h2>
@@ -10,6 +17,7 @@
 
             <div v-if="is_local_model_importing"  class="model_card" style="padding:20px">
                 <h2>Importing model</h2>
+                <p v-if="import_progress"> Downloading {{import_progress}}% </p>
                 <br>
                  <MoonLoader class="moonloader" color="#000000" size="50px" style="zoom:0.4"></MoonLoader>
             </div>
@@ -37,7 +45,7 @@
                     <p> {{model.description}} </p> 
                     <p style="zoom:0.7"> {{ model_metadata_to_str(model) }}</p>
                     <p v-if="model.min_ram_gb > total_ram_gb" style="color:red; zoom:0.8"> Needs {{model.min_ram_gb}} GB RAM, this Mac has {{total_ram_gb}} GB. It may be very slow. </p>
-                    <p v-if="model.requires_hf_token" style="zoom:0.8"> Gated: accept the license on <a href="#" @click.prevent="open_repo_page(model)">huggingface.co</a> and add a Hugging Face token in Settings. </p>
+                    <p v-if="model.requires_hf_token" style="zoom:0.8"> Gated: accept the license on <a href="#" @click.prevent="open_repo_page(model)">huggingface.co</a>, then log in with <code>hf auth login</code> or add a token in Settings. </p>
                     <DownloadButton :app=app  :asset_details="model"> </DownloadButton>
                 </div> 
             </div>
@@ -60,6 +68,9 @@ const ModelStore ={
     data() {
         return {
             is_local_model_importing : false, 
+            hf_cached_repos : null, // HF cache repos not added yet, once the Hugging Face import is open
+            hf_repo : "",
+            import_progress : 0,
             default_img_url : require("../assets/imgs/page_icon_imgs/default.png"),
             total_ram_gb : window.ipcRenderer.sendSync('get_total_ram_gb'),
         };
@@ -93,6 +104,51 @@ const ModelStore ={
             if(asset_details.size_gb)
                 r.push(asset_details.size_gb + " GB")
             return r.filter(x => x).join(" · ")
+        },
+
+        show_hf_import(){
+            window.ipcRenderer.invoke('list_cached_hf_repos').then(repos => {
+                let am = this.app.assets_manager
+                let added = Object.values(am.all_avail_assets).map(a => a.hf_repo)
+                this.hf_cached_repos = repos.filter(r => !added.includes(r)).sort()
+            })
+        },
+
+        import_hf_model(){
+            let repo = this.hf_repo.replace(/^https?:\/\/huggingface\.co\//, "").split("/").slice(0, 2).join("/")
+            if(!/^[\w.-]+\/[\w.-]+$/.test(repo)){
+                this.app.show_toast("Enter a Hugging Face repo id like black-forest-labs/FLUX.1-schnell")
+                return
+            }
+            let am = this.app.assets_manager
+            let entry = am.catalog.find(m => m.hf_repo == repo)
+            if(entry){ // catalog models download on their own card, with the catalog's settings
+                if(!am.downloaded_assets[entry.id])
+                    am.download_asset(entry)
+                this.app.show_toast(entry.title + " is in the model list below")
+                return
+            }
+            let model_name = repo.split("/")[1]
+            if(am.all_avail_assets[model_name] || am.catalog_entry(model_name)){
+                this.app.show_toast("A model with this name already exists");
+                return;
+            }
+            if(this.is_local_model_importing){
+                this.app.show_toast("Model is already importing. Please wait")
+                return;
+            }
+            this.is_local_model_importing = true
+            this.import_progress = 0
+            am.import_hf_model(repo, model_name, p => { this.import_progress = p }, err => {
+                this.is_local_model_importing = false
+                this.import_progress = 0
+                if(err)
+                    this.app.show_toast("Error while importing " + err)
+                else {
+                    this.hf_repo = ""
+                    this.hf_cached_repos = this.hf_cached_repos.filter(r => r != repo)
+                }
+            })
         },
 
         import_model_locally(){

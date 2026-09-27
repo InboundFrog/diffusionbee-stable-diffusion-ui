@@ -211,6 +211,8 @@ def fetch_repo(repo, variant="fp16", progress=None, check_only=False):
             if not isinstance(index_path, str):
                 return None
             index = json.load(open(index_path))
+            if not family_from_class(index.get("_class_name", "")):  # before fetching gigabytes the app can't use
+                raise ValueError(f"{repo}: {index.get('_class_name') or 'this pipeline'} is not a supported model type")
             components = [k for k, v in index.items() if isinstance(v, list) and v[0] and k != "safety_checker"]
         files = pick_files(sizes, components, variant)
         have = [f for f in files if isinstance(try_to_load_from_cache(repo, f, revision=info.sha), str)]
@@ -233,7 +235,8 @@ def fetch_repo(repo, variant="fp16", progress=None, check_only=False):
 
         path = snapshot_download(repo, revision=info.sha, allow_patterns=files, tqdm_class=Bar)
     except GatedRepoError:
-        raise ValueError(f"{repo} is gated: accept its license on huggingface.co and set a Hugging Face token")
+        raise ValueError(f"{repo} is gated: accept its license on huggingface.co, then run `hf auth login` "
+                         "or set a Hugging Face token in Settings")
     if progress:
         progress(100)
     return path

@@ -338,6 +338,8 @@ img {
     border-radius: 5px;
     border: 0.5px solid rgba(0, 0, 0, 0.1);
     /*background: #F4F5F5;*/
+    /* the title bar menus hang below the title bar but inherit its drag region, which swallows clicks */
+    -webkit-app-region: no-drag;
 }
 
 .opaciy_half{

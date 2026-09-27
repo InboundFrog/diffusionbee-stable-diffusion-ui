@@ -483,6 +483,27 @@ function hf_env(){
 }
 
 
+// Repo ids of the diffusers models (and ControlNets) in the HF cache, for the Models page's Hugging Face import.
+// Same cache location rules as huggingface_hub.
+ipcMain.handle('list_cached_hf_repos', () => {
+    const fs = require('fs');
+    let hub = process.env.HF_HUB_CACHE || path.join(process.env.HF_HOME || path.join(require('os').homedir(), '.cache', 'huggingface'), 'hub');
+    const is_model = (dir) => fs.existsSync(path.join(dir, 'model_index.json')) ||
+        (fs.existsSync(path.join(dir, 'config.json')) && fs.readFileSync(path.join(dir, 'config.json'), 'utf8').includes('ControlNet'));
+    let repos = [];
+    try {
+        for (let d of fs.readdirSync(hub)) {
+            let snaps = path.join(hub, d, 'snapshots');
+            if (d.startsWith('models--') && fs.existsSync(snaps) && fs.readdirSync(snaps).some(s => is_model(path.join(snaps, s))))
+                repos.push(d.slice(8).replace('--', '/'));
+        }
+    } catch (err) {
+        console.log(err)
+    }
+    return repos;
+})
+
+
 // Which of these repos ("repo_id:variant") are already fully in the HF cache: resolves {repo_id: snapshot folder}.
 // Downloads nothing.
 ipcMain.handle('find_cached_hf_models', async (event, repos) => {
