@@ -259,13 +259,15 @@ def repo_info(repo):
     """What the Models page can import from a HF repo: {diffusers: true} for a pipeline (or ControlNet) repo, else
     the root .safetensors files the app can run, as [name, bytes, inspect_model() info], and the base model its
     card names. Reads each file's header over the network, downloads no weights."""
-    from huggingface_hub import HfApi
+    from huggingface_hub import HfApi, hf_hub_download
     from huggingface_hub.errors import GatedRepoError, RepositoryNotFoundError
     api = HfApi()
+    is_controlnet = lambda cfg: "ControlNet" in json.load(open(cfg)).get("_class_name", "")  # not an LLM's config.json
     try:
         info = api.model_info(repo, files_metadata=True)
         sizes = {s.rfilename: s.size or 0 for s in info.siblings}
-        if "model_index.json" in sizes or "config.json" in sizes:
+        if "model_index.json" in sizes or ("config.json" in sizes and is_controlnet(
+                hf_hub_download(repo, "config.json", revision=info.sha))):
             return {"diffusers": True}
         base = (info.card_data or {}).get("base_model")
         files = []
@@ -281,7 +283,8 @@ def repo_info(repo):
     except Exception:  # offline: a cached pipeline still imports, from its snapshot (see fetch_repo)
         from huggingface_hub.constants import HF_HUB_CACHE
         snaps = os.path.join(HF_HUB_CACHE, "models--" + repo.replace("/", "--"), "snapshots", "*")
-        if glob.glob(os.path.join(snaps, "model_index.json")) or glob.glob(os.path.join(snaps, "config.json")):
+        if glob.glob(os.path.join(snaps, "model_index.json")) or any(
+                map(is_controlnet, glob.glob(os.path.join(snaps, "config.json")))):
             return {"diffusers": True}
         raise
     if not files:
