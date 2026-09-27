@@ -11,14 +11,19 @@ import tempfile
 import numpy as np
 import pytest
 from PIL import Image
+from huggingface_hub import constants as hf_constants
 from safetensors.numpy import save_file
+
+# The backend writes images and data under ~/.diffusionbee. Point HOME at a temp dir so tests
+# never touch the user's data, and pin HF_HOME first so models and the token still come from the real cache.
+os.environ["HF_HOME"] = hf_constants.HF_HOME
+TMP = tempfile.mkdtemp()
+os.environ["HOME"] = TMP
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BACKEND = os.path.join(HERE, "diffusionbee_backend.py")
 sys.path.insert(0, HERE)
 import diffusionbee_backend as db  # noqa: E402  (torch/diffusers are only imported when needed)
-
-TMP = tempfile.mkdtemp()
 
 
 class Backend:
