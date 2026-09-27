@@ -8,7 +8,13 @@
             <input v-model.trim="hf_repo" list="hf_cached_repos" placeholder="org/model" @keyup.enter="import_hf_model" style="width: 360px">
             <datalist id="hf_cached_repos"><option v-for="r in hf_cached_repos" :key="r" :value="r"></option></datalist>
             <div class="l_button button_colored button_small" style="display:inline-block" @click="import_hf_model"> Import </div>
-            <p style="opacity:0.6"> A diffusers model repo id or huggingface.co link. The list has the ones already in the Hugging Face cache ({{hf_cached_repos.length}}); others are downloaded into it. </p>
+            <div v-if="hf_files">
+                <select v-model="hf_file" style="width: 360px">
+                    <option v-for="f in hf_files.files" :key="f[0]" :value="f[0]"> {{f[0]}} ({{(f[1] / 1e9).toFixed(2)}} GB) </option>
+                </select>
+                <div class="l_button button_colored button_small" style="display:inline-block" @click="import_hf_file(hf_file)"> Import File </div>
+            </div>
+            <p style="opacity:0.6"> A repo id or huggingface.co link: a diffusers model, or a repo of .safetensors models, LoRAs or MLX transformers (GGUF isn't supported). The list has the ones already in the Hugging Face cache ({{hf_cached_repos.length}}); others are downloaded into it. </p>
         </div>
         <hr>
 
@@ -18,6 +24,7 @@
             <div v-if="is_local_model_importing"  class="model_card" style="padding:20px">
                 <h2>Importing model</h2>
                 <p v-if="import_progress"> Downloading {{import_progress}}% </p>
+                <p v-else-if="hf_checking"> Checking the repo </p>
                 <br>
                  <MoonLoader class="moonloader" color="#000000" size="50px" style="zoom:0.4"></MoonLoader>
             </div>
@@ -70,6 +77,9 @@ const ModelStore ={
             is_local_model_importing : false, 
             hf_cached_repos : null, // HF cache repos not added yet, once the Hugging Face import is open
             hf_repo : "",
+            hf_files : null, // {repo, base_model, files: [[name, bytes, info]]} of a repo of single files, to pick one
+            hf_file : "",
+            hf_checking : false,
             import_progress : 0,
             default_img_url : require("../assets/imgs/page_icon_imgs/default.png"),
             total_ram_gb : window.ipcRenderer.sendSync('get_total_ram_gb'),
@@ -128,7 +138,41 @@ const ModelStore ={
                 this.app.show_toast(entry.title + " is in the model list below")
                 return
             }
-            let model_name = repo.split("/")[1]
+            if(this.is_local_model_importing){
+                this.app.show_toast("Model is already importing. Please wait")
+                return;
+            }
+            this.hf_files = null
+            this.is_local_model_importing = this.hf_checking = true
+            window.ipcRenderer.invoke('repo_info', repo).then(result => {
+                this.is_local_model_importing = this.hf_checking = false
+                if(!result.success)
+                    return this.app.show_toast("Error while importing " + result.error)
+                if(result.info.diffusers)
+                    return this.start_hf_import(repo, repo.split("/")[1])
+                this.hf_files = {repo: repo, ...result.info}
+                this.hf_file = result.info.files[0][0]
+                if(result.info.files.length == 1)
+                    this.import_hf_file(this.hf_file)
+            })
+        },
+
+        // one file of hf_files. A LoRA gets its family, and an MLX transformer its pipeline, from the base model
+        import_hf_file(file){
+            let am = this.app.assets_manager
+            let {repo, base_model, files} = this.hf_files
+            let info = files.find(f => f[0] == file)[2]
+            let base = am.catalog.find(m => m.hf_repo == base_model) || Object.values(am.all_avail_assets).find(a => a.hf_repo == base_model)
+            if(info.mlx_bits && !base){
+                this.app.show_toast(`${file} is an MLX transformer for ${base_model || "an unnamed base model"}. Import that model first.`)
+                return
+            }
+            let name = files.length == 1 ? repo.split("/")[1] : file.replace(/\.safetensors$/, "")
+            this.start_hf_import(repo, name, file, base && base.id)
+        },
+
+        start_hf_import(repo, model_name, file, base_id){
+            let am = this.app.assets_manager
             if(am.all_avail_assets[model_name] || am.catalog_entry(model_name)){
                 this.app.show_toast("A model with this name already exists");
                 return;
@@ -139,13 +183,14 @@ const ModelStore ={
             }
             this.is_local_model_importing = true
             this.import_progress = 0
-            am.import_hf_model(repo, model_name, p => { this.import_progress = p }, err => {
+            am.import_hf_model(repo, model_name, file, base_id, p => { this.import_progress = p }, err => {
                 this.is_local_model_importing = false
                 this.import_progress = 0
                 if(err)
                     this.app.show_toast("Error while importing " + err)
                 else {
                     this.hf_repo = ""
+                    this.hf_files = null
                     this.hf_cached_repos = this.hf_cached_repos.filter(r => r != repo)
                 }
             })

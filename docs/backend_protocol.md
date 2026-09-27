@@ -11,6 +11,7 @@ Backend → app (stdout). Anything else on stdout/stderr is log output.
 | Line | Meaning |
 |---|---|
 | `sdbk mltl <text>` | loading title |
+| `sdbk mlxf ["flux", "qwenimage21"]` | sent once at startup: the families this Mac runs on the MLX engine (see the tier table). That engine has no inpaint or LoRA, so the UI hides both for them |
 | `sdbk mdld` | backend ready |
 | `sdbk inrd` | waiting for input |
 | `sdbk inwk` | job accepted |
@@ -32,11 +33,12 @@ Model fields (replace all `*_tdict_path` fields):
 
 | Field | Meaning |
 |---|---|
-| `model_path` | Local diffusers folder (has `model_index.json`) or single-file `.safetensors` checkpoint |
+| `model_path` | Local diffusers folder (has `model_index.json`), single-file `.safetensors` checkpoint, or MLX transformer file (below) |
 | `model_repo` | HF repo id, used when `model_path` is absent (resolved from the HF cache, downloaded if missing). The app downloads first and sends `model_path` |
 | `model_family` | optional hint: `sd15`, `sdxl`, `sd3`, `flux`, `flux2`, `zimage`, `qwenimage`, `qwenimage21`. Autodetected otherwise |
 | `inpaint_model_path` / `inpaint_model_repo` | optional dedicated inpainting checkpoint, used for inpaint jobs. May equal `model_path` (loaded once). An inpainting checkpoint always runs its inpaint pipeline (full mask / blank image when none is given) |
 | `controlnet_path` / `controlnet_repo` | ControlNet: diffusers folder or single `.safetensors`. SD 1.5 / SDXL only |
+| `base_model_path` / `base_model_repo` | the diffusers folder an MLX transformer file in `model_path` runs on: its text encoder, VAE and configs |
 | `lora_paths` | list of LoRA `.safetensors` files (the app sends one); `lora_weights` optional parallel list, default 1.0 |
 
 Rejected: `.tdict` paths (DiffusionBee 1.x/2.x, "re-import the original .safetensors") and pickle files
@@ -45,6 +47,13 @@ Rejected: `.tdict` paths (DiffusionBee 1.x/2.x, "re-import the original .safeten
 Single-file checkpoints are supported for sd15 and sdxl. diffusers fetches their small config files from the Hub the first time.
 sd3, flux and zimage single files usually hold only the transformer, and diffusers then downloads the text encoders and VAE from the base repo, which is large and sometimes gated.
 Use diffusers folders for those and for flux2 and qwenimage.
+
+An MLX transformer file (`inspect_model` reports `mlx_bits`) is a fine-tuned transformer already quantized in the
+MLX layout, e.g. `abenzerps/Qwen-Image-2.1-Uncensored-GGUF`'s `qwen-image-2.1-UC-MLX-{4,6,8}bit.safetensors`.
+It runs on the MLX engine at its own bit width, whatever the RAM tier, with everything else from `base_model_path`.
+The base weights are never read: its transformer is replaced before evaluation, so loading takes about as long as the base (Qwen-Image-2.1 8-bit: 6 s, same 29 GB peak).
+Every tensor must fit the family's mflux transformer, so a file for another family or bit width fails at load.
+There's no inpaint or LoRA for it, as on the MLX engine generally.
 
 Generation fields:
 
@@ -91,8 +100,9 @@ It renders a GIF by mixing the two seeds' noise and lerping the prompt embedding
 
 Each prints plain lines on stdout. On failure it exits non-zero and the last stderr line is the error.
 
-- `diffusionbee_backend download_model <repo_id> [--variant fp16]`
-  prints `progress <0-100>` lines, then `done <HF_HOME>/hub/models--<org>--<name>/snapshots/<revision>`.
+- `diffusionbee_backend download_model <repo_id> [--variant fp16] [--file <name>]`
+  prints `progress <0-100>` lines, then `done <HF_HOME>/hub/models--<org>--<name>/snapshots/<revision>`
+  (with `--file`, the path of that one file, which is all it fetches).
   - Downloads only what the pipeline loads: configs and tokenizers, plus one set of `.safetensors` per component listed in `model_index.json`.
   - Prefers the variant, which defaults to `fp16` when the repo has it.
   - Skips root single-file checkpoints, `.bin`/`.ckpt`, `non_ema`, onnx, `safety_checker` and assets.
@@ -112,9 +122,20 @@ Each prints plain lines on stdout. On failure it exits non-zero and the last std
   prints `cached <repo_id> <snapshot folder>` for each repo whose files (the same set `download_model` picks, at the Hub's current revision) are all in the HF cache. It downloads nothing.
   - Repos with no cache folder are skipped without a network call. Stubs, repos that are offline, gated or unknown, and older revisions are not listed.
   - The app runs it at startup, so catalog models fetched by `hf download` or another app show as downloaded. Models the user removed are skipped; they're kept in `~/.diffusionbee/hidden_hf_models.json` until downloaded again.
+- `diffusionbee_backend repo_info <repo_id>`
+  prints one JSON line saying what the Models page's "Import From Hugging Face" can take from a repo.
+  - `{"diffusers": true}` for a pipeline or ControlNet repo (`model_index.json` or `config.json`), imported with `download_model`.
+  - Otherwise `{"diffusers": false, "base_model": "Qwen/Qwen-Image-2.1", "files": [[name, bytes, inspect_model info], ...]}`:
+    the root `.safetensors` files the app can run (LoRAs, MLX transformers, sd15/sdxl/sd3/flux/zimage checkpoints),
+    classified from their headers, which it reads over the network without downloading the weights.
+    `base_model` comes from the model card, `null` if it names none.
+    The app gives a LoRA with no family its base's family, and an MLX transformer its base as `base_model_path`.
+  - It fails when there is nothing to run, e.g. GGUF-only repos (not supported) or ComfyUI fp8/int8 files.
+  - Offline, a cached pipeline repo still gives `{"diffusers": true}`.
 - `diffusionbee_backend inspect_model <path>` (a `.safetensors` file or a diffusers folder)
   prints one JSON line `{"family": "sdxl", "is_inpaint": false, "type": "sd_model"|"lora"|"controlnet"}`.
   - `family` is `null` when unknown.
+  - An MLX transformer file (`.scales` tensors) adds `"mlx_bits": 8`, with `family` `null`: it comes from the base model.
   - A LoRA's family comes from its cross-attention width: 768/1024 gives sd15, 2048 gives sdxl. It is `null` for DiT LoRAs, which the app shows for every model.
 - `diffusionbee_backend upscale <in.png> <out.png>`
   4x Real-ESRGAN x4plus on MPS (fp16, 256 px tiles), prints `done <out.png>`. Alpha is kept.

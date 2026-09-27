@@ -40,6 +40,7 @@ export default {
             remaining_times: "",
             attached_cbs : undefined,
             model_version : "",
+            mlx_families : [], // from the backend: families on the MLX engine here (no inpaint, no LoRA)
             nb_its: 0,
             iter_times: [],
             generation_loop: undefined
@@ -75,6 +76,10 @@ export default {
                 } else {
                     console.log("got new img but cbs none")
                 }
+            }
+
+            if(msg_code == "mlxf"){
+                this.mlx_families = JSON.parse(msg.substring(5))
             }
 
             if(msg_code == "mdvr"){

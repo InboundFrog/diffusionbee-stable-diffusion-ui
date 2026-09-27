@@ -155,6 +155,9 @@ export default {
                 options.model_family = meta.family
                 if(meta.type == 'inpaint_model')
                     options.inpaint_model_path = options.model_path
+                let base_id = (am.get_downloaded_asset(options.selected_sd_model) || {}).base_model_id
+                if(base_id) // an MLX transformer file runs on its base model's text encoder and VAE
+                    options.base_model_path = am.get_downloaded_asset_path(base_id)
                 // hidden (basic mode, or CFG-free family): use the family default
                 if(options.guidance_scale === undefined)
                     options.guidance_scale = meta.default_guidance
@@ -252,7 +255,7 @@ export default {
             }
 
             let drop = []
-            if(!lora_el || lora_el.options.length < 2)
+            if(!lora_el || lora_el.options.length < 2 || meta.supports_lora === false)
                 drop.push("selected_lora")
 
             // model family defaults and capabilities
@@ -283,10 +286,12 @@ export default {
 
         required_assets_modified(){
             let ret = JSON.parse(JSON.stringify(this.required_assets || []))
-            // a catalog model is selected but not downloaded yet
-            let entry = this.app.assets_manager.catalog_entry(this.sd_options.selected_sd_model)
-            if(entry)
-                ret.unshift(entry)
+            // a catalog model is selected but not downloaded yet, or the catalog base model of an MLX transformer file
+            let am = this.app.assets_manager
+            let id = this.sd_options.selected_sd_model
+            for(let entry of [am.catalog_entry(id), am.catalog_entry((am.get_downloaded_asset(id) || {}).base_model_id)])
+                if(entry)
+                    ret.unshift(entry)
             return ret
         },
 

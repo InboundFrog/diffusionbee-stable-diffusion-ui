@@ -144,7 +144,15 @@ def inspect_model(path):
             return {"family": family, "is_inpaint": False, "type": "controlnet"}
         raise ValueError("Not a diffusers model folder (needs model_index.json, or config.json of a ControlNet)")
 
-    shapes = safetensors_shapes(check_path(path))
+    return classify(safetensors_shapes(check_path(path)))
+
+
+def classify(shapes):
+    """inspect_model() of a .safetensors file, from its tensor shapes."""
+    scales = next((k for k in shapes if k.endswith(".scales")), None)
+    if scales:  # an MLX-quantized transformer (mflux layout, group size 64) that runs on its base model's MLX engine
+        bits = shapes[scales[:-len("scales")] + "weight"].shape[-1] * 32 // (shapes[scales].shape[-1] * 64)
+        return {"family": None, "is_inpaint": False, "type": "sd_model", "mlx_bits": bits}
     if any("lora" in k for k in shapes):
         dims = [v.shape[-1] for k, v in shapes.items()
                 if "attn2" in k and "to_k" in k and ("lora_down" in k or "lora_A" in k)]
@@ -181,9 +189,10 @@ def pick_files(files, components, variant):
     return keep
 
 
-def fetch_repo(repo, variant="fp16", progress=None, check_only=False):
+def fetch_repo(repo, variant="fp16", progress=None, check_only=False, file=None):
     """Download what the pipeline needs into the HF cache; returns the snapshot folder.
-    check_only: download nothing, return the snapshot folder if every needed file is already cached, else None."""
+    check_only: download nothing, return the snapshot folder if every needed file is already cached, else None.
+    file: just this repo file (a single-file model or LoRA); returns its path."""
     from huggingface_hub import HfApi, hf_hub_download, snapshot_download, try_to_load_from_cache
     from huggingface_hub.constants import HF_HUB_CACHE
     from huggingface_hub.errors import GatedRepoError, RepositoryNotFoundError
@@ -201,11 +210,12 @@ def fetch_repo(repo, variant="fp16", progress=None, check_only=False):
         snaps = glob.glob(os.path.join(repo_dir, "snapshots", "*"))
         if check_only or not snaps:  # offline there's no file list to check a snapshot against
             raise
-        return max(snaps, key=os.path.getmtime)
+        path = max(snaps, key=os.path.getmtime)
+        return os.path.join(path, file) if file else path
     try:
         sizes = {s.rfilename: s.size or 0 for s in info.siblings}
         components = None
-        if "model_index.json" in sizes:
+        if "model_index.json" in sizes and not file:
             index_path = (try_to_load_from_cache if check_only else hf_hub_download)(
                 repo, "model_index.json", revision=info.sha)
             if not isinstance(index_path, str):
@@ -214,7 +224,7 @@ def fetch_repo(repo, variant="fp16", progress=None, check_only=False):
             if not family_from_class(index.get("_class_name", "")):  # before fetching gigabytes the app can't use
                 raise ValueError(f"{repo}: {index.get('_class_name') or 'this pipeline'} is not a supported model type")
             components = [k for k, v in index.items() if isinstance(v, list) and v[0] and k != "safety_checker"]
-        files = pick_files(sizes, components, variant)
+        files = [file] if file else pick_files(sizes, components, variant)
         have = [f for f in files if isinstance(try_to_load_from_cache(repo, f, revision=info.sha), str)]
         if check_only:
             return os.path.join(repo_dir, "snapshots", info.sha) if len(have) == len(files) else None
@@ -235,11 +245,49 @@ def fetch_repo(repo, variant="fp16", progress=None, check_only=False):
 
         path = snapshot_download(repo, revision=info.sha, allow_patterns=files, tqdm_class=Bar)
     except GatedRepoError:
-        raise ValueError(f"{repo} is gated: accept its license on huggingface.co, then run `hf auth login` "
-                         "or set a Hugging Face token in Settings")
+        raise ValueError(gated(repo))
     if progress:
         progress(100)
-    return path
+    return os.path.join(path, file) if file else path
+
+
+def gated(repo):
+    return f"{repo} is gated: accept its license on huggingface.co, then run `hf auth login` or set a Hugging Face token in Settings"
+
+
+def repo_info(repo):
+    """What the Models page can import from a HF repo: {diffusers: true} for a pipeline (or ControlNet) repo, else
+    the root .safetensors files the app can run, as [name, bytes, inspect_model() info], and the base model its
+    card names. Reads each file's header over the network, downloads no weights."""
+    from huggingface_hub import HfApi
+    from huggingface_hub.errors import GatedRepoError, RepositoryNotFoundError
+    api = HfApi()
+    try:
+        info = api.model_info(repo, files_metadata=True)
+        sizes = {s.rfilename: s.size or 0 for s in info.siblings}
+        if "model_index.json" in sizes or "config.json" in sizes:
+            return {"diffusers": True}
+        base = (info.card_data or {}).get("base_model")
+        files = []
+        for name in sorted(f for f in sizes if f.endswith(".safetensors") and "/" not in f):
+            header = api.parse_safetensors_file_metadata(repo, name, revision=info.sha)
+            m = classify({k: SimpleNamespace(shape=tuple(t.shape)) for k, t in header.tensors.items()})
+            if m["type"] == "lora" or m.get("mlx_bits") or m["family"] in SINGLE_FILE:
+                files.append([name, sizes[name], m])
+    except RepositoryNotFoundError:
+        raise ValueError(f"Model repo not found (or gated without a token): {repo}")
+    except GatedRepoError:
+        raise ValueError(gated(repo))
+    except Exception:  # offline: a cached pipeline still imports, from its snapshot (see fetch_repo)
+        from huggingface_hub.constants import HF_HUB_CACHE
+        snaps = os.path.join(HF_HUB_CACHE, "models--" + repo.replace("/", "--"), "snapshots", "*")
+        if glob.glob(os.path.join(snaps, "model_index.json")) or glob.glob(os.path.join(snaps, "config.json")):
+            return {"diffusers": True}
+        raise
+    if not files:
+        raise ValueError(f"{repo} has no diffusers model or .safetensors file DiffusionBee can run"
+                         + (" (GGUF isn't supported)" if any(f.endswith(".gguf") for f in sizes) else ""))
+    return {"diffusers": False, "base_model": base[0] if isinstance(base, list) else base, "files": files}
 
 
 def model_source(d, key):
@@ -402,7 +450,8 @@ class Engine:
         if "mlx.core" in sys.modules:
             sys.modules["mlx.core"].clear_cache()
 
-    def load_base(self, src, family_hint=None):
+    def load_base(self, src, family_hint=None, base=None):
+        """base: the diffusers folder an MLX transformer file (src) runs on"""
         if src == self.base_key:
             return
         import diffusers
@@ -441,6 +490,14 @@ class Engine:
             pipe = diffusers.DiffusionPipeline.from_pretrained(src, **kw)
         else:
             info = inspect_model(src)
+            if info.get("mlx_bits"):
+                if not base:
+                    raise ValueError(f"{os.path.basename(src)} is an MLX transformer and needs its base model")
+                import mflux_pipe
+                family = family_hint or inspect_model(base)["family"]
+                self.base = mflux_pipe.load(family, base, info["mlx_bits"], transformer=src)
+                self.base_key, self.family = src, family
+                return
             if info["type"] != "sd_model":
                 raise ValueError(f"{os.path.basename(src)} is a {info['type']}, not a base model")
             family = family_hint or info["family"]
@@ -531,7 +588,7 @@ class Engine:
         inpaint_src = model_source(d, "inpaint_model")
         if mode == "inpaint" and inpaint_src:
             src = inpaint_src  # dedicated inpainting checkpoint; same path as model_path is loaded once
-        self.load_base(src, d.get("model_family"))
+        self.load_base(src, d.get("model_family"), model_source(d, "base_model"))
         family = self.family
         if "Inpaint" in type(self.base).__name__:
             mode = "inpaint"  # an inpainting checkpoint can only inpaint; see blank image / full mask below
@@ -682,6 +739,8 @@ def serve():
 
     out("sdbk mltl Loading Model")
     engine = Engine()
+    # families this Mac runs on the MLX engine, which has no inpaint or LoRA: the UI hides those for them
+    out("sdbk mlxf " + json.dumps([f for f in DIT_PEAK_GB if pick_tier(f, engine.ram) not in ("bf16", None)]))
     register_applet(engine, FrameInterpolator)
     threading.Thread(target=_read_stdin, daemon=True).start()
     out("sdbk mdld")
@@ -709,7 +768,7 @@ def serve():
 
 def main(argv):
     cmd = argv[1] if len(argv) > 1 else None
-    if cmd not in ("download_model", "cached_models", "inspect_model", "upscale"):
+    if cmd not in ("download_model", "cached_models", "inspect_model", "repo_info", "upscale"):
         return serve()
     try:
         if cmd == "cached_models":
@@ -725,13 +784,16 @@ def main(argv):
         elif cmd == "download_model":
             args = argv[2:]
             variant = args[args.index("--variant") + 1] if "--variant" in args else "fp16"
+            file = args[args.index("--file") + 1] if "--file" in args else None
             last = [-1]
 
             def progress(p):
                 if p != last[0]:
                     last[0] = p
                     out(f"progress {p}")
-            out("done " + fetch_repo(args[0], variant, progress))
+            out("done " + fetch_repo(args[0], variant, progress, file=file))
+        elif cmd == "repo_info":
+            out(json.dumps(repo_info(argv[2])))
         elif cmd == "upscale":
             from upscale import upscale
             upscale(argv[2], argv[3])

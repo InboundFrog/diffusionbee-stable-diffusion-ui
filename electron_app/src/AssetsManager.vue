@@ -119,10 +119,14 @@ export default {
             return CATALOG.find(x => x.model_meta_data.type == 'controlnet' && x.model_meta_data.controlnet_mode == mode && x.model_meta_data.family == family)
         },
 
-        // model_meta_data of a catalog or downloaded/imported asset
+        // model_meta_data of a catalog or downloaded/imported asset. MLX transformer files, and families the backend
+        // runs on its MLX engine on this Mac, can't inpaint or take a LoRA
         model_meta(asset_id){
             let asset = this.catalog_entry(asset_id) || this.all_avail_assets[asset_id]
-            return asset && asset.model_meta_data
+            let meta = asset && asset.model_meta_data
+            if(meta && (meta.mlx || ((this.$parent.$refs.stable_diffusion || {}).mlx_families || []).includes(meta.family)))
+                return {...meta, supports_inpaint: false, supports_lora: false}
+            return meta
         },
 
         // info = inspect_model output {family, is_inpaint, type}
@@ -141,14 +145,23 @@ export default {
             })
         },
 
-        // any diffusers repo on huggingface.co: fetched into the HF cache (nothing to fetch if it's already there)
-        // and registered like an imported model, so Remove only forgets it. callback(error or undefined)
-        import_hf_model(repo, asset_id, on_progress, callback){
-            ipc_download(['download_hf_model', repo, 'fp16'], on_progress, (asset_path) => {
+        // any diffusers repo on huggingface.co, or one .safetensors file of a repo (single-file model, LoRA, MLX
+        // transformer): fetched into the HF cache (nothing to fetch if it's already there) and registered like an
+        // imported model, so Remove only forgets it. base_id: the asset of the base model the repo's card names,
+        // which gives a LoRA its family and an MLX transformer the rest of its pipeline. callback(error or undefined)
+        import_hf_model(repo, asset_id, file, base_id, on_progress, callback){
+            ipc_download(['download_hf_model', repo, file ? '' : 'fp16', file || ''], on_progress, (asset_path) => {
                 window.ipcRenderer.invoke('inspect_model', asset_path).then(result => {
-                    let err = result.success ? this.add_local_asset(asset_path, asset_id, result.info) : result.error
+                    let info = result.info || {}
+                    let base = this.catalog_entry(base_id) || this.all_avail_assets[base_id]
+                    info.family = info.family || (base && base.model_meta_data.family)
+                    let err = result.success ? this.add_local_asset(asset_path, asset_id, info) : result.error
                     if(!err)
                         Vue.set(this.local_assets[asset_id], 'hf_repo', repo)
+                    if(!err && info.mlx_bits){
+                        Vue.set(this.local_assets[asset_id], 'base_model_id', base_id)
+                        Vue.set(this.local_assets[asset_id].model_meta_data, 'mlx', true)
+                    }
                     callback(err)
                 })
             }, callback)
@@ -226,7 +239,7 @@ export default {
                 this.set_hf_hidden(asset_id, false)
                 // the backend fetches the repo into the HF cache and returns the snapshot folder. Gated repos use the
                 // Settings token or the `hf auth login` one; without either the backend reports the gate
-                ipc_download(['download_hf_model', asset_details.hf_repo, asset_details.variant || ""], on_progress, on_done, on_error)
+                ipc_download(['download_hf_model', asset_details.hf_repo, asset_details.variant || "", ""], on_progress, on_done, on_error)
                 return
             }
 

@@ -5,6 +5,7 @@ an mflux (MLX) model behind the part of the diffusers pipeline call that Engine.
 import inspect
 import json
 import os
+import re
 import tempfile
 from types import SimpleNamespace
 
@@ -14,8 +15,10 @@ from mflux.utils.exceptions import StopImageGenerationException
 mx.set_cache_limit(2 << 30)  # MLX keeps freed buffers by default: +20 GB after one 1024² image, then swap
 
 
-def load(family, src, bits):
+def load(family, src, bits, transformer=None):
     """src: the diffusers snapshot dir load_base() gets; mflux converts and quantizes it at load (3-9 s).
+    transformer: a fine-tuned transformer .safetensors, already quantized to `bits` in mflux's own layout,
+    that replaces the base one. The base weights are lazy and replaced before evaluation, so they're never read.
     ponytail: assumes the catalog's Z-Image-Turbo / FLUX.2-klein-4B / FLUX.1 dev or schnell / Qwen-Image-2.1;
     other variants need their mflux ModelConfig."""
     from mflux.models.common.vae.tiling_config import TilingConfig
@@ -35,10 +38,36 @@ def load(family, src, bits):
         model = QwenImage21(quantize=bits, model_path=src)
     else:
         raise ValueError(f"No MLX engine for {family}")
+    if transformer:
+        load_transformer(model.transformer, transformer, family)
     mx.eval(model.parameters())  # quantize now; left lazy, the first image holds bf16 + q4 (Z-Image: 30 GB peak)
     mx.clear_cache()
     model.tiling_config = TilingConfig()  # VAE tiling: -4.5 GB peak at 1024², same speed, no seams
     return MfluxPipe(model)
+
+
+# other MLX ports' names for mflux transformer weights (e.g. abenzerps/Qwen-Image-2.1-Uncensored-GGUF's MLX files)
+# ponytail: add renames as other ports turn up
+RENAMES = [(re.compile(r"^modulation\.0\."), "modulation.layers.1."),
+           (re.compile(r"^time_text_embed\.linear_"), "time_text_embed.timestep_embedder.linear_")]
+
+
+def load_transformer(module, path, family):
+    """Weights from `path` into the (quantized) mflux transformer. Every file tensor must fit and every weight be
+    covered, so a file for another family or bit width fails here, not mid-image. Computed buffers (RoPE tables,
+    timestep freqs) are never in a file, which is why this isn't load_weights(strict=True)."""
+    from mlx.utils import tree_flatten
+    w = {}
+    for k, v in mx.load(path).items():
+        for pattern, new in RENAMES:
+            k = pattern.sub(new, k)
+        w[k] = v
+    have = dict(tree_flatten(module.parameters()))
+    bad = [k for k in w if k not in have or have[k].shape != w[k].shape]
+    bad += [k for k in have if k not in w and k.rsplit(".", 1)[-1] in ("weight", "bias", "scales", "biases")]
+    if bad:
+        raise ValueError(f"{os.path.basename(path)} doesn't fit the {family} MLX transformer ({len(bad)} tensors, e.g. {bad[0]})")
+    module.load_weights(list(w.items()), strict=False)
 
 
 class MfluxPipe:

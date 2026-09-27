@@ -30,7 +30,7 @@ class Backend:
     def __init__(self, **env):
         self.p = subprocess.Popen([sys.executable, BACKEND], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                   text=True, bufsize=1, env=dict(os.environ, **env))
-        self.read_until("sdbk inrd")
+        self.startup = self.read_until("sdbk inrd")
 
     def read_until(self, prefix):
         lines = []
@@ -93,6 +93,9 @@ def test_family_detection():
     xl = {"conditioner.embedders.1.model.transformer.resblocks.9.mlp.c_proj.bias": (1280,)}
     assert db.inspect_model(st_file("xl.safetensors", xl))["family"] == "sdxl"
     assert db.inspect_model(st_file("junk.safetensors", {"foo": (1,)}))["family"] is None
+    # MLX-quantized transformer: 32-bit words of packed weights plus one scale per 64 weights
+    mlx = {"blocks.0.to_q.weight": (8, 16), "blocks.0.to_q.scales": (8, 1), "blocks.0.to_q.biases": (8, 1)}
+    assert db.inspect_model(st_file("mlx.safetensors", mlx)) == {"family": None, "is_inpaint": False, "type": "sd_model", "mlx_bits": 8}
 
 
 def test_engine_tiers():
@@ -111,6 +114,15 @@ def test_engine_tiers():
     e.ram = 8
     with pytest.raises(ValueError, match="^Z-Image-Turbo needs about 14 GB of RAM$"):
         e.load_base(snap)
+
+
+def test_reports_mlx_families():
+    # the UI hides inpaint and LoRA for these; 32 GB: Z-Image and FLUX.1 on MLX, FLUX.2 on diffusers, Qwen-2.1 doesn't fit
+    b = Backend(DIFFUSIONBEE_RAM_GB="32")
+    try:
+        assert [json.loads(l[len("sdbk mlxf "):]) for l in b.startup if l.startswith("sdbk mlxf ")] == [["zimage", "flux"]]
+    finally:
+        b.close()
 
 
 def test_pick_files():
@@ -152,6 +164,46 @@ def test_offline_uses_cached_snapshot():
                        env=dict(os.environ, HF_HOME=hf, HF_HUB_OFFLINE="1"))
     assert r.returncode == 0, r.stderr[-2000:]
     assert r.stdout.splitlines()[-1] == "done " + os.path.join(snaps, "new")
+    r = subprocess.run([sys.executable, BACKEND, "download_model", "org/model", "--file", "lora.safetensors"],
+                       capture_output=True, text=True, env=dict(os.environ, HF_HOME=hf, HF_HUB_OFFLINE="1"))
+    assert r.stdout.splitlines()[-1] == "done " + os.path.join(snaps, "new", "lora.safetensors")
+    open(os.path.join(snaps, "old", "model_index.json"), "w").write("{}")
+    r = subprocess.run([sys.executable, BACKEND, "repo_info", "org/model"], capture_output=True, text=True,
+                       env=dict(os.environ, HF_HOME=hf, HF_HUB_OFFLINE="1"))
+    assert r.stdout.splitlines()[-1] == '{"diffusers": true}', r.stderr[-2000:]
+
+
+def test_repo_info():
+    # the Models page's Hugging Face import: pipelines, single files the app can run (by their remote headers), GGUF
+    assert json.loads(run_cmd("repo_info", "hf-internal-testing/tiny-sdxl-pipe")[-1]) == {"diffusers": True}
+    info = db.repo_info("latent-consistency/lcm-lora-sdv1-5")
+    assert info["base_model"] == "runwayml/stable-diffusion-v1-5"
+    assert info["files"] == [["pytorch_lora_weights.safetensors", 134621556, {"family": "sd15", "is_inpaint": False, "type": "lora"}]]
+    with pytest.raises(ValueError, match="GGUF isn't supported"):
+        db.repo_info("city96/FLUX.1-dev-gguf")
+
+
+def test_mlx_transformer_file():
+    # another MLX port's names are mapped onto mflux's; a file for another bit width is refused before any image
+    mx = pytest.importorskip("mlx.core")
+    import mlx.nn as nn
+    from mlx.utils import tree_flatten
+    import mflux_pipe
+
+    class T(nn.Module):
+        def __init__(self, bits):
+            super().__init__()
+            self.modulation = nn.Sequential(nn.SiLU(), nn.Linear(64, 64))
+            nn.quantize(self, bits=bits)
+
+    src = T(8)
+    path = os.path.join(TMP, "t.safetensors")
+    mx.save_safetensors(path, {k.replace("modulation.layers.1.", "modulation.0."): v for k, v in tree_flatten(src.parameters())})
+    dst = T(8)
+    mflux_pipe.load_transformer(dst, path, "test")
+    assert mx.array_equal(dst.modulation.layers[1].weight, src.modulation.layers[1].weight)
+    with pytest.raises(ValueError, match="doesn't fit the test MLX transformer"):
+        mflux_pipe.load_transformer(T(4), path, "test")
 
 
 def test_cached_models():

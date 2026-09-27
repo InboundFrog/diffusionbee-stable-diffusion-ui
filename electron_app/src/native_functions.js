@@ -483,13 +483,14 @@ function hf_env(){
 }
 
 
-// Repo ids of the diffusers models (and ControlNets) in the HF cache, for the Models page's Hugging Face import.
-// Same cache location rules as huggingface_hub.
+// Repo ids of the diffusers models (and ControlNets), and repos with root .safetensors files (single-file models,
+// LoRAs), in the HF cache, for the Models page's Hugging Face import. Same cache location rules as huggingface_hub.
 ipcMain.handle('list_cached_hf_repos', () => {
     const fs = require('fs');
     let hub = process.env.HF_HUB_CACHE || path.join(process.env.HF_HOME || path.join(require('os').homedir(), '.cache', 'huggingface'), 'hub');
     const is_model = (dir) => fs.existsSync(path.join(dir, 'model_index.json')) ||
-        (fs.existsSync(path.join(dir, 'config.json')) && fs.readFileSync(path.join(dir, 'config.json'), 'utf8').includes('ControlNet'));
+        (fs.existsSync(path.join(dir, 'config.json')) && fs.readFileSync(path.join(dir, 'config.json'), 'utf8').includes('ControlNet')) ||
+        fs.readdirSync(dir).some(f => f.endsWith('.safetensors'));
     let repos = [];
     try {
         for (let d of fs.readdirSync(hub)) {
@@ -522,9 +523,9 @@ ipcMain.handle('find_cached_hf_models', async (event, repos) => {
 })
 
 
-// Download a HF repo into the HF cache. Progress and result go over the same `to_download` channel as download-file,
-// success carries the local snapshot folder.
-ipcMain.on('download_hf_model', (event, repo_id, variant, downloadId) => {
+// Download a HF repo (or just one of its files) into the HF cache. Progress and result go over the same `to_download`
+// channel as download-file, success carries the local snapshot folder (or file).
+ipcMain.on('download_hf_model', (event, repo_id, variant, file, downloadId) => {
     const send = (fn, msg) => {
         try {
             event.sender.send(`to_download`, {fn: fn , download_id: downloadId , msg: msg });
@@ -533,7 +534,7 @@ ipcMain.on('download_hf_model', (event, repo_id, variant, downloadId) => {
         }
     }
 
-    let proc = spawn_backend_cmd( ["download_model", repo_id].concat(variant ? ["--variant", variant] : []) , hf_env() );
+    let proc = spawn_backend_cmd( ["download_model", repo_id].concat(variant ? ["--variant", variant] : [], file ? ["--file", file] : []) , hf_env() );
     let snapshot_dir = "";
     let errors = "";
     let finished = false;
@@ -582,8 +583,20 @@ ipcMain.handle('inspect_model', async (event, model_path) => {
     if (!is_supported)
         return { success: false, error: "only .safetensors files or diffusers model folders can be imported (.ckpt is not supported)" };
 
-    return await new Promise(resolve => {
-        let proc = spawn_backend_cmd(["inspect_model", model_path]);
+    return await backend_json(["inspect_model", model_path]);
+})
+
+
+// What the Hugging Face import can take from a repo: {success, info: {diffusers, base_model, files}} or {success, error}
+ipcMain.handle('repo_info', async (event, repo_id) => {
+    return await backend_json(["repo_info", repo_id], hf_env());
+})
+
+
+// a backend command that prints one JSON line: {success, info} or {success: false, error: its last stderr line}
+function backend_json(args, env){
+    return new Promise(resolve => {
+        let proc = spawn_backend_cmd(args, env);
         let out = "";
         let errors = "";
         proc.stdout.on('data', (data) => { out += data });
@@ -600,7 +613,7 @@ ipcMain.handle('inspect_model', async (event, model_path) => {
             resolve({ success: false, error: last_line(errors) || "could not read the model" });
         });
     });
-})
+}
 
 
 ipcMain.on('get_total_ram_gb', (event) => {
