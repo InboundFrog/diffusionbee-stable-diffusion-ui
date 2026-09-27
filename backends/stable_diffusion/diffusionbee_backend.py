@@ -2,6 +2,7 @@
 
 No args: stdin/stdout job loop (docs/backend_protocol.md).
 `download_model <repo_id> [--variant fp16]`: fetch the files a pipeline loads into the HF cache.
+`cached_models <repo_id[:variant]>...`: print "cached <repo_id> <snapshot>" for each repo already fully in the HF cache.
 `inspect_model <path>`: print {"family", "is_inpaint", "type"} for a .safetensors file or diffusers folder.
 """
 import os
@@ -180,33 +181,43 @@ def pick_files(files, components, variant):
     return keep
 
 
-def fetch_repo(repo, variant="fp16", progress=None):
-    """Download what the pipeline needs into the HF cache; returns the snapshot folder."""
+def fetch_repo(repo, variant="fp16", progress=None, check_only=False):
+    """Download what the pipeline needs into the HF cache; returns the snapshot folder.
+    check_only: download nothing, return the snapshot folder if every needed file is already cached, else None."""
     from huggingface_hub import HfApi, hf_hub_download, snapshot_download, try_to_load_from_cache
+    from huggingface_hub.constants import HF_HUB_CACHE
     from huggingface_hub.errors import GatedRepoError, RepositoryNotFoundError
     from tqdm import tqdm
 
+    repo_dir = os.path.join(HF_HUB_CACHE, "models--" + repo.replace("/", "--"))
+    if check_only and not os.path.isdir(repo_dir):
+        return None
     try:
         info = HfApi().model_info(repo, files_metadata=True)
     except RepositoryNotFoundError:
         raise ValueError(f"Model repo not found (or gated without a token): {repo}")
     except Exception:  # offline: use the newest cached snapshot. Not snapshot_download(local_files_only=True):
         # downloads below pin revision=sha, which writes no refs/main for it to resolve
-        from huggingface_hub.constants import HF_HUB_CACHE
-        snaps = glob.glob(os.path.join(HF_HUB_CACHE, "models--" + repo.replace("/", "--"), "snapshots", "*"))
-        if not snaps:
+        snaps = glob.glob(os.path.join(repo_dir, "snapshots", "*"))
+        if check_only or not snaps:  # offline there's no file list to check a snapshot against
             raise
         return max(snaps, key=os.path.getmtime)
     try:
         sizes = {s.rfilename: s.size or 0 for s in info.siblings}
         components = None
         if "model_index.json" in sizes:
-            index = json.load(open(hf_hub_download(repo, "model_index.json", revision=info.sha)))
+            index_path = (try_to_load_from_cache if check_only else hf_hub_download)(
+                repo, "model_index.json", revision=info.sha)
+            if not isinstance(index_path, str):
+                return None
+            index = json.load(open(index_path))
             components = [k for k, v in index.items() if isinstance(v, list) and v[0] and k != "safety_checker"]
         files = pick_files(sizes, components, variant)
+        have = [f for f in files if isinstance(try_to_load_from_cache(repo, f, revision=info.sha), str)]
+        if check_only:
+            return os.path.join(repo_dir, "snapshots", info.sha) if len(have) == len(files) else None
         total = sum(sizes[f] for f in files) or 1
-        cached = sum(sizes[f] for f in files
-                     if isinstance(try_to_load_from_cache(repo, f, revision=info.sha), str))
+        cached = sum(sizes[f] for f in have)
         done = {}
 
         class Bar(tqdm):  # snapshot_download reports aggregated byte counts through tqdm_class
@@ -695,10 +706,20 @@ def serve():
 
 def main(argv):
     cmd = argv[1] if len(argv) > 1 else None
-    if cmd not in ("download_model", "inspect_model", "upscale"):
+    if cmd not in ("download_model", "cached_models", "inspect_model", "upscale"):
         return serve()
     try:
-        if cmd == "download_model":
+        if cmd == "cached_models":
+            for arg in argv[2:]:
+                repo, _, variant = arg.partition(":")
+                try:
+                    path = fetch_repo(repo, variant or "fp16", check_only=True)
+                except Exception as e:  # offline, gated, gone: just not detected
+                    print(f"{repo}: {one_line(e)}", file=sys.stderr, flush=True)
+                    continue
+                if path:
+                    out(f"cached {repo} {path}")
+        elif cmd == "download_model":
             args = argv[2:]
             variant = args[args.index("--variant") + 1] if "--variant" in args else "fp16"
             last = [-1]

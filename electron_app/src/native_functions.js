@@ -473,6 +473,34 @@ function last_line(text){
 }
 
 
+// env for backend commands that talk to the Hub: the token from Settings, if any
+function hf_env(){
+    let env = Object.assign({}, process.env);
+    let hf_token = (load_data("app_data_2.json").settings || {}).hf_token;
+    if (hf_token)
+        env.HF_TOKEN = hf_token;
+    return env;
+}
+
+
+// Which of these repos ("repo_id:variant") are already fully in the HF cache: resolves {repo_id: snapshot folder}.
+// Downloads nothing.
+ipcMain.handle('find_cached_hf_models', async (event, repos) => {
+    return await new Promise(resolve => {
+        let found = {};
+        let proc = spawn_backend_cmd(["cached_models"].concat(repos), hf_env());
+        require('readline').createInterface({ input: proc.stdout }).on('line', (line) => {
+            let [tag, repo_id, ...rest] = line.split(" ");
+            if (tag == "cached")
+                found[repo_id] = rest.join(" ");
+        });
+        proc.stderr.on('data', (data) => console.log(`cached_models: ${data}`));
+        proc.on('error', () => resolve({}));
+        proc.on('close', () => resolve(found));
+    });
+})
+
+
 // Download a HF repo into the HF cache. Progress and result go over the same `to_download` channel as download-file,
 // success carries the local snapshot folder.
 ipcMain.on('download_hf_model', (event, repo_id, variant, downloadId) => {
@@ -484,12 +512,7 @@ ipcMain.on('download_hf_model', (event, repo_id, variant, downloadId) => {
         }
     }
 
-    let env = Object.assign({}, process.env);
-    let hf_token = (load_data("app_data_2.json").settings || {}).hf_token;
-    if (hf_token)
-        env.HF_TOKEN = hf_token;
-
-    let proc = spawn_backend_cmd( ["download_model", repo_id].concat(variant ? ["--variant", variant] : []) , env );
+    let proc = spawn_backend_cmd( ["download_model", repo_id].concat(variant ? ["--variant", variant] : []) , hf_env() );
     let snapshot_dir = "";
     let errors = "";
     let finished = false;

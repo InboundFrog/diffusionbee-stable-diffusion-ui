@@ -46,6 +46,17 @@ export default {
     props: {},
     components: {},
     mounted() {
+        // catalog models already in the HF cache (fetched by `hf download` or another app) count as downloaded,
+        // except ones the user removed here
+        let hidden = window.ipcRenderer.sendSync('load_data', 'hidden_hf_models.json')
+        let todo = CATALOG.filter(m => m.hf_repo && !this.downloaded_assets[m.id] && !hidden[m.id])
+        if(todo.length)
+            window.ipcRenderer.invoke('find_cached_hf_models', todo.map(m => m.hf_repo + ":" + (m.variant || ""))).then(found => {
+                for(let m of todo)
+                    if(found[m.hf_repo] && !this.downloaded_assets[m.id])
+                        Vue.set(this.downloaded_assets, m.id, {...JSON.parse(JSON.stringify(m)), asset_path: found[m.hf_repo], status: 'done'})
+            })
+
         if(this.n_legacy_dropped > 0){
             window.ipcRenderer.sendSync('save_data', this.downloaded_assets , 'downloaded_assets.json');
             window.ipcRenderer.sendSync('save_data', this.local_assets , 'locally_loaded_assets.json');
@@ -150,10 +161,22 @@ export default {
             if(!asset_details || asset_details.is_locally_imported || !asset_details.asset_path)
                 return
             // the HF cache is shared with other tools and only ever written by huggingface_hub downloads: only forget
-            if(asset_details.hf_repo)
+            if(asset_details.hf_repo){
+                this.set_hf_hidden(asset_id, true)
                 Vue.$toast.default(`Removed ${asset_details.title || asset_id}. Its files stay in the Hugging Face cache; "hf cache rm model/${asset_details.hf_repo}" deletes them.`, {duration: 15000})
+            }
             else
                 window.ipcRenderer.sendSync('delete_file',  asset_details.asset_path );
+        },
+
+        // catalog models the user removed: the startup HF cache scan skips them until they're downloaded again
+        set_hf_hidden(asset_id, hidden){
+            let h = window.ipcRenderer.sendSync('load_data', 'hidden_hf_models.json')
+            if(hidden)
+                h[asset_id] = true
+            else
+                delete h[asset_id]
+            window.ipcRenderer.sendSync('save_data', h, 'hidden_hf_models.json')
         },
 
         download_asset(asset_details){
@@ -192,6 +215,7 @@ export default {
                     on_error("This model is gated. Accept its license on huggingface.co and add a Hugging Face token in Settings.")
                     return
                 }
+                this.set_hf_hidden(asset_id, false)
                 // the backend fetches the repo into the HF cache and returns the snapshot folder
                 ipc_download(['download_hf_model', asset_details.hf_repo, asset_details.variant || ""], on_progress, on_done, on_error)
                 return

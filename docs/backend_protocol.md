@@ -105,6 +105,10 @@ Each prints plain lines on stdout. On failure it exits non-zero and the last std
     derived from a model, such as future pre-quantized MLX weights, goes under `~/.diffusionbee`.
   - The `HF_TOKEN` env var enables gated repos, and a gated repo without access gives a "gated: accept its license" error.
   - When the Hub can't be reached, it falls back to the cached copy.
+- `diffusionbee_backend cached_models <repo_id[:variant]>...`
+  prints `cached <repo_id> <snapshot folder>` for each repo whose files (the same set `download_model` picks, at the Hub's current revision) are all in the HF cache. It downloads nothing.
+  - Repos with no cache folder are skipped without a network call. Stubs, repos that are offline, gated or unknown, and older revisions are not listed.
+  - The app runs it at startup, so catalog models fetched by `hf download` or another app show as downloaded. Models the user removed are skipped; they're kept in `~/.diffusionbee/hidden_hf_models.json` until downloaded again.
 - `diffusionbee_backend inspect_model <path>` (a `.safetensors` file or a diffusers folder)
   prints one JSON line `{"family": "sdxl", "is_inpaint": false, "type": "sd_model"|"lora"|"controlnet"}`.
   - `family` is `null` when unknown.

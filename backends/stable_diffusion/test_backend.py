@@ -154,6 +154,19 @@ def test_offline_uses_cached_snapshot():
     assert r.stdout.splitlines()[-1] == "done " + os.path.join(snaps, "new")
 
 
+def test_cached_models():
+    # lists repos whose needed files are all cached; a stub (only model_index.json) or unknown repo is not listed
+    repo = "hf-internal-testing/tiny-sdxl-pipe"
+    run_cmd("download_model", repo)
+    lines = run_cmd("cached_models", repo + ":", "nobody/not-a-repo")
+    assert len(lines) == 1 and lines[0].startswith(f"cached {repo} ") and os.path.isdir(lines[0].split(" ", 2)[2])
+    env = dict(os.environ, HF_HOME=tempfile.mkdtemp())
+    subprocess.run([sys.executable, "-c", f"import huggingface_hub as h; h.hf_hub_download('{repo}', 'model_index.json')"],
+                   env=env, check=True)
+    r = subprocess.run([sys.executable, BACKEND, "cached_models", repo], capture_output=True, text=True, env=env)
+    assert r.returncode == 0 and r.stdout == "", r.stdout + r.stderr[-2000:]
+
+
 def test_end_to_end():
     lines = run_cmd("download_model", "hf-internal-testing/tiny-sdxl-pipe")
     model = lines[-1][len("done "):]
