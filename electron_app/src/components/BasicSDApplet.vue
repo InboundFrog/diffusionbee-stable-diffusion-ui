@@ -255,7 +255,7 @@ export default {
             }
 
             let drop = []
-            if(!lora_el || lora_el.options.length < 2 || meta.supports_lora === false)
+            if(!lora_el || lora_el.options.length < 2)
                 drop.push("selected_lora")
 
             // model family defaults and capabilities

@@ -133,10 +133,19 @@ def inspect_model(path):
     if os.path.isdir(path):
         index_file = os.path.join(path, "model_index.json")
         if os.path.exists(index_file):
-            cls = json.load(open(index_file)).get("_class_name", "")
-            unet_cfg = os.path.join(path, "unet", "config.json")
-            in_ch = json.load(open(unet_cfg)).get("in_channels") if os.path.exists(unet_cfg) else None
-            return {"family": family_from_class(cls), "is_inpaint": "Inpaint" in cls or in_ch == 9, "type": "sd_model"}
+            index = json.load(open(index_file))
+            cls = index.get("_class_name", "")
+            cfg = lambda *p: json.load(open(os.path.join(path, *p))) if os.path.exists(os.path.join(path, *p)) else {}
+            family = family_from_class(cls)
+            info = {"family": family, "is_inpaint": "Inpaint" in cls or cfg("unet", "config.json").get("in_channels") == 9,
+                    "type": "sd_model"}
+            # UI defaults (model_meta_data) of variants that aren't the catalog's one per family
+            if (family == "zimage" and cfg("scheduler", "scheduler_config.json").get("shift", 3) > 3  # Z-Image, not Turbo
+                    or family == "flux2" and not index.get("is_distilled")):  # FLUX.2-klein base, FLUX.2-dev
+                info["defaults"] = {"default_steps": 50, "default_guidance": 4, "supports_negative_prompt": True}
+            if family == "flux" and not cfg("transformer", "config.json").get("guidance_embeds", True):  # schnell-like
+                info["defaults"] = {"default_steps": 4, "default_guidance": 0}
+            return info
         cfg_file = os.path.join(path, "config.json")
         cfg = json.load(open(cfg_file)) if os.path.exists(cfg_file) else {}
         if "ControlNet" in cfg.get("_class_name", ""):
@@ -265,6 +274,9 @@ def repo_info(repo):
     is_controlnet = lambda cfg: "ControlNet" in json.load(open(cfg)).get("_class_name", "")  # not an LLM's config.json
     try:
         info = api.model_info(repo, files_metadata=True)
+        tag = info.pipeline_tag
+        if tag and not (tag.endswith("-to-image") or tag == "unconditional-image-generation"):
+            raise ValueError(f"{repo} is a {tag} model, not an image generation model")
         sizes = {s.rfilename: s.size or 0 for s in info.siblings}
         if "model_index.json" in sizes or ("config.json" in sizes and is_controlnet(
                 hf_hub_download(repo, "config.json", revision=info.sha))):
@@ -658,10 +670,10 @@ class Engine:
                       guess_mode=bool(d.get("controlnet_guess_mode")))
 
         if type(self.base).__name__ == "MfluxPipe":
-            if mode == "inpaint" or d.get("lora_paths"):  # ponytail: mflux takes lora_paths at load; wire up when asked
-                what = "inpaint" if mode == "inpaint" else "LoRA"
+            if mode == "inpaint":
                 where = "the low-memory MLX engine this Mac uses" if DIT_PEAK_GB[family]["bf16"] else "the MLX engine"
-                raise ValueError(f"{what} is not supported for {family} on {where}")
+                raise ValueError(f"inpaint is not supported for {family} on {where}")
+            self.base.set_loras([check_path(p) for p in d.get("lora_paths") or []], d.get("lora_weights"))
             pipe = self.base
         else:
             self.set_loras(d.get("lora_paths") or [], d.get("lora_weights"))
@@ -742,7 +754,7 @@ def serve():
 
     out("sdbk mltl Loading Model")
     engine = Engine()
-    # families this Mac runs on the MLX engine, which has no inpaint or LoRA: the UI hides those for them
+    # families this Mac runs on the MLX engine, which has no inpaint: the UI hides it for them
     out("sdbk mlxf " + json.dumps([f for f in DIT_PEAK_GB if pick_tier(f, engine.ram) not in ("bf16", None)]))
     register_applet(engine, FrameInterpolator)
     threading.Thread(target=_read_stdin, daemon=True).start()

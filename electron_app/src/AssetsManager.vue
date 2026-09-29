@@ -120,12 +120,12 @@ export default {
         },
 
         // model_meta_data of a catalog or downloaded/imported asset. MLX transformer files, and families the backend
-        // runs on its MLX engine on this Mac, can't inpaint or take a LoRA
+        // runs on its MLX engine on this Mac, can't inpaint
         model_meta(asset_id){
             let asset = this.catalog_entry(asset_id) || this.all_avail_assets[asset_id]
             let meta = asset && asset.model_meta_data
             if(meta && (meta.mlx || ((this.$parent.$refs.stable_diffusion || {}).mlx_families || []).includes(meta.family)))
-                return {...meta, supports_inpaint: false, supports_lora: false}
+                return {...meta, supports_inpaint: false}
             return meta
         },
 
@@ -141,7 +141,7 @@ export default {
                 asset_path: asset_path,
                 is_locally_imported: true,
                 status: 'done',
-                model_meta_data: { ...FAMILIES[info.family], type: type, family: info.family },
+                model_meta_data: { ...FAMILIES[info.family], ...info.defaults, type: type, family: info.family },
             })
         },
 

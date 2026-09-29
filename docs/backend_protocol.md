@@ -11,7 +11,7 @@ Backend → app (stdout). Anything else on stdout/stderr is log output.
 | Line | Meaning |
 |---|---|
 | `sdbk mltl <text>` | loading title |
-| `sdbk mlxf ["flux", "qwenimage21"]` | sent once at startup: the families this Mac runs on the MLX engine (see the tier table). That engine has no inpaint or LoRA, so the UI hides both for them |
+| `sdbk mlxf ["flux", "qwenimage21"]` | sent once at startup: the families this Mac runs on the MLX engine (see the tier table). That engine has no inpaint, so the UI hides it for them |
 | `sdbk mdld` | backend ready |
 | `sdbk inrd` | waiting for input |
 | `sdbk inwk` | job accepted |
@@ -53,7 +53,7 @@ MLX layout, e.g. `abenzerps/Qwen-Image-2.1-Uncensored-GGUF`'s `qwen-image-2.1-UC
 It runs on the MLX engine at its own bit width, whatever the RAM tier, with everything else from `base_model_path`.
 The base weights are never read: its transformer is replaced before evaluation, so loading takes about as long as the base (Qwen-Image-2.1 8-bit: 6 s, same 29 GB peak).
 Every tensor must fit the family's mflux transformer, so a file for another family or bit width fails at load.
-There's no inpaint or LoRA for it, as on the MLX engine generally.
+It takes LoRAs but not inpaint, as on the MLX engine generally.
 
 Generation fields:
 
@@ -130,11 +130,15 @@ Each prints plain lines on stdout. On failure it exits non-zero and the last std
     classified from their headers, which it reads over the network without downloading the weights.
     `base_model` comes from the model card, `null` if it names none.
     The app gives a LoRA with no family its base's family, and an MLX transformer its base as `base_model_path`.
-  - It fails when there is nothing to run, e.g. GGUF-only repos (not supported) or ComfyUI fp8/int8 files.
+  - It fails when there is nothing to run, e.g. GGUF-only repos (not supported) or ComfyUI fp8/int8 files,
+    and for repos whose Hub `pipeline_tag` isn't image generation (`*-to-image`), e.g. an MLX LLM, whose weights look like an MLX transformer's.
   - Offline, a cached pipeline repo still gives `{"diffusers": true}`.
 - `diffusionbee_backend inspect_model <path>` (a `.safetensors` file or a diffusers folder)
   prints one JSON line `{"family": "sdxl", "is_inpaint": false, "type": "sd_model"|"lora"|"controlnet"}`.
   - `family` is `null` when unknown.
+  - A diffusers folder of a variant that isn't its family's catalog model adds `defaults`, which the app merges into the model's
+    `model_meta_data`: Z-Image base (scheduler shift 6, not Turbo's 3) and FLUX.2 without `is_distilled` (klein base, FLUX.2-dev)
+    get 50 steps, cfg 4 and a negative prompt; FLUX.1 without `guidance_embeds` (schnell-like) gets 4 steps, cfg 0.
   - An MLX transformer file (`.scales` tensors) adds `"mlx_bits": 8`, with `family` `null`: it comes from the base model.
   - A LoRA's family comes from its cross-attention width: 768/1024 gives sd15, 2048 gives sdxl. It is `null` for DiT LoRAs, which the app shows for every model.
 - `diffusionbee_backend upscale <in.png> <out.png>`
@@ -183,10 +187,15 @@ Apple Silicon settings:
   the backend logs it to stderr and reruns that image eagerly, and the model stays eager. `DIFFUSIONBEE_COMPILE=0` turns it off.
 - `DIFFUSIONBEE_RAM_GB=<GB>` in the backend's environment replaces the detected RAM for these choices (and attention slicing),
   to test the tiers on a bigger Mac or to force the MLX engine. The app passes its environment through to the backend.
-- The MLX engine runs txt2img and img2img. Inpaint and LoRA jobs fail with
-  `inpaint is not supported for zimage on the low-memory MLX engine this Mac uses` (or `LoRA …`; qwenimage21 says
+- The MLX engine runs txt2img and img2img, with LoRAs. Inpaint jobs fail with
+  `inpaint is not supported for zimage on the low-memory MLX engine this Mac uses` (qwenimage21 says
   `on the MLX engine`, its only engine); ControlNet is SD 1.5/SDXL only anyway.
-  FLUX.1 dev vs schnell comes from the transformer's `guidance_embeds`. Qwen-Image-2.1 runs true CFG only when cfg > 1,
-  with the negative prompt (a blank one when empty).
+  LoRAs are adapter layers on the quantized transformer, not baked in, so changing them takes 1-2 s instead of a reload;
+  a step costs up to ~8% more (FLUX.1 with a rank-16 LoRA on every layer; Qwen-Image-2.1's attention-only one ~1%).
+  They use mflux's key mappings (diffusers/PEFT, kohya, ComfyUI names); Qwen-Image-2.1 has its own mapping here.
+  A LoRA whose keys don't fit the model fails with `No LoRA layers were applied from …`, and the model stays as it was.
+  The mflux model config comes from the model's own configs: FLUX.1 dev vs schnell from the transformer's `guidance_embeds`,
+  Z-Image base vs Turbo from the scheduler shift, FLUX.2-klein 4B vs 9B from the transformer size (other FLUX.2 models fail at load).
+  Qwen-Image-2.1 runs true CFG only when cfg > 1, with the negative prompt (a blank one when empty).
   `small_mod_seed` is ignored, a seed gives a different image than on diffusers, and flux2 img2img starts from the noised
   input image instead of using it as a reference image. Without mlx installed (dev venv) these families use diffusers.

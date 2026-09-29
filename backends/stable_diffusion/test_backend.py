@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -181,6 +182,8 @@ def test_repo_info():
     assert info["files"] == [["pytorch_lora_weights.safetensors", 134621556, {"family": "sd15", "is_inpaint": False, "type": "lora"}]]
     with pytest.raises(ValueError, match="GGUF isn't supported"):
         db.repo_info("city96/FLUX.1-dev-gguf")
+    with pytest.raises(ValueError, match="not an image generation model"):  # an MLX LLM's weights look like an MLX transformer's
+        db.repo_info("mlx-community/Qwen3.8-27B-4bit")
 
 
 def test_mlx_transformer_file():
@@ -204,6 +207,73 @@ def test_mlx_transformer_file():
     assert mx.array_equal(dst.modulation.layers[1].weight, src.modulation.layers[1].weight)
     with pytest.raises(ValueError, match="doesn't fit the test MLX transformer"):
         mflux_pipe.load_transformer(T(4), path, "test")
+
+
+def test_mlx_lora():
+    # Qwen-Image-2.1 LoRAs (mflux has no mapping for it) as adapters on the quantized transformer: changing or
+    # removing them strips the old ones and drops its compiled step, and a LoRA for another model changes nothing
+    mx = pytest.importorskip("mlx.core")
+    import mlx.nn as nn
+    import mflux_pipe
+
+    class Block(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.attn = nn.Module()
+            self.attn.to_q = nn.Linear(64, 64, bias=False)
+
+    class T(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.modulation = nn.Sequential(nn.SiLU(), nn.Linear(64, 64, bias=False))
+            self.transformer_blocks = [Block(), Block()]
+            self.set_dtype(mx.bfloat16)  # as mflux runs
+            nn.quantize(self, bits=8)
+
+        def __call__(self, x):
+            return self.transformer_blocks[1].attn.to_q(self.modulation(x))
+
+    t = T()
+    pipe = mflux_pipe.MfluxPipe(SimpleNamespace(transformer=t, callbacks=SimpleNamespace(register=lambda p: None)), "qwenimage21")
+    lora, other = os.path.join(TMP, "lora.safetensors"), os.path.join(TMP, "other.safetensors")
+    r = lambda *shape: (0.1 * mx.random.normal(shape)).astype(mx.float16)  # fp16, as many LoRAs are
+    mx.save_safetensors(lora, {"transformer_blocks.1.attn.to_q.lora_A.default.weight": r(4, 64),
+                               "transformer_blocks.1.attn.to_q.lora_B.default.weight": r(64, 4),
+                               "modulation.0.lora_A.weight": r(4, 64), "modulation.0.lora_B.weight": r(64, 4)})
+    mx.save_safetensors(other, {"double_blocks.0.img_attn.qkv.lora_A.weight": mx.random.normal((4, 64)),
+                                "double_blocks.0.img_attn.qkv.lora_B.weight": mx.random.normal((64, 4))})
+    x = mx.random.normal((1, 64)).astype(mx.bfloat16)
+    base = t(x)
+    t._step_fn = "compiled"
+    pipe.set_loras([lora], None)
+    assert t._step_fn is None and not mx.allclose(t(x), base, atol=0.05) and t(x).dtype == mx.bfloat16
+    pipe.set_loras([lora, lora], [1, -1])  # the first set is stripped, else this wouldn't cancel out
+    assert mx.allclose(t(x), base, atol=0.05)
+    with pytest.raises(ValueError, match="No LoRA layers were applied"):
+        pipe.set_loras([other], None)
+    assert mx.array_equal(t(x), base) and pipe.loras == ((), [])
+    pipe.set_loras([lora], None)
+    pipe.set_loras([], None)
+    assert mx.array_equal(t(x), base) and isinstance(t.modulation.layers[1], nn.QuantizedLinear)
+
+
+def test_variant_defaults():
+    # an imported variant that isn't its family's catalog model gets its own UI defaults, from its configs
+    def defaults(cls, index={}, **configs):
+        d = tempfile.mkdtemp(dir=TMP)
+        json.dump({"_class_name": cls, **index}, open(os.path.join(d, "model_index.json"), "w"))
+        for sub, c in configs.items():
+            os.makedirs(os.path.join(d, sub))
+            json.dump(c, open(os.path.join(d, sub, "scheduler_config.json" if sub == "scheduler" else "config.json"), "w"))
+        return db.inspect_model(d).get("defaults")
+
+    cfg = {"default_steps": 50, "default_guidance": 4, "supports_negative_prompt": True}
+    assert defaults("ZImagePipeline", scheduler={"shift": 3.0}) is None  # Turbo
+    assert defaults("ZImagePipeline", scheduler={"shift": 6.0}) == cfg
+    assert defaults("Flux2KleinPipeline", {"is_distilled": True}) is None
+    assert defaults("Flux2KleinPipeline") == cfg
+    assert defaults("FluxPipeline", transformer={"guidance_embeds": True}) is None
+    assert defaults("FluxPipeline", transformer={"guidance_embeds": False}) == {"default_steps": 4, "default_guidance": 0}
 
 
 def test_cached_models():
@@ -294,7 +364,7 @@ def cached_snapshot(*repos):
     ("flux", ["black-forest-labs/FLUX.1-schnell", "black-forest-labs/FLUX.1-dev"]),
     ("qwenimage21", ["Qwen/Qwen-Image-2.1"])])
 def test_mlx_families(family, repos):
-    # each mflux family at its q4 RAM tier: protocol progress, image, inpaint/LoRA errors, a stop inside the denoising loop
+    # each mflux family at its q4 RAM tier: protocol progress, image, inpaint/bad LoRA errors, a stop inside the denoising loop
     pytest.importorskip("mlx.core")
     snap = cached_snapshot(*repos)
     b = Backend(DIFFUSIONBEE_RAM_GB=str(math.ceil(db.DIT_PEAK_GB[family]["q4"] / 0.75)))
@@ -308,9 +378,10 @@ def test_mlx_families(family, repos):
 
         red = os.path.join(TMP, "red512.png")
         Image.new("RGB", (512, 512), (255, 0, 0)).save(red)
-        for extra, what in ((dict(input_img=red, mask_image=red), "inpaint"), (dict(lora_paths=[red]), "LoRA")):
-            _, errs, _ = b.job(**common, **extra)
-            assert errs and errs[0].startswith(f"{what} is not supported for {family} on the"), errs
+        _, errs, _ = b.job(**common, input_img=red, mask_image=red)
+        assert errs and errs[0].startswith(f"inpaint is not supported for {family} on the"), errs
+        _, errs, _ = b.job(**common, lora_paths=[red])  # LoRAs work (test_mlx_lora); this one isn't a LoRA file
+        assert errs and errs[0].startswith("Failed to load LoRA file"), errs
 
         b.send("b2py t2im " + json.dumps(dict(common, num_steps=20, num_imgs=3)))
         b.read_until("sdbk dnpr")
