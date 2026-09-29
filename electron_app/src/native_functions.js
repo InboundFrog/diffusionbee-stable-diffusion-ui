@@ -483,14 +483,15 @@ function hf_env(){
 }
 
 
-// Repo ids of the diffusers models (and ControlNets), and repos with root .safetensors files (single-file models,
-// LoRAs), in the HF cache, for the Models page's Hugging Face import. Same cache location rules as huggingface_hub.
+// Repo ids of the diffusers models (and ControlNets), and repos with root .safetensors or .gguf files (single-file
+// models, LoRAs, MLX and GGUF transformers), in the HF cache, for the Models page's Hugging Face import. Same cache
+// location rules as huggingface_hub.
 ipcMain.handle('list_cached_hf_repos', () => {
     const fs = require('fs');
     let hub = process.env.HF_HUB_CACHE || path.join(process.env.HF_HOME || path.join(require('os').homedir(), '.cache', 'huggingface'), 'hub');
     const is_model = (dir) => fs.existsSync(path.join(dir, 'model_index.json')) ||
         (fs.existsSync(path.join(dir, 'config.json')) && fs.readFileSync(path.join(dir, 'config.json'), 'utf8').includes('ControlNet')) ||
-        fs.readdirSync(dir).some(f => f.endsWith('.safetensors'));
+        fs.readdirSync(dir).some(f => f.endsWith('.safetensors') || f.endsWith('.gguf'));
     let repos = [];
     try {
         for (let d of fs.readdirSync(hub)) {
@@ -568,7 +569,7 @@ ipcMain.on('download_hf_model', (event, repo_id, variant, file, downloadId) => {
 })
 
 
-// Family/type of a local .safetensors file or diffusers folder. Nothing is converted or copied.
+// Family/type of a local .safetensors or .gguf file or diffusers folder. Nothing is converted or copied.
 ipcMain.handle('inspect_model', async (event, model_path) => {
     const fs = require('fs');
     let is_dir;
@@ -579,9 +580,9 @@ ipcMain.handle('inspect_model', async (event, model_path) => {
     }
 
     let is_supported = is_dir ? (fs.existsSync(path.join(model_path, "model_index.json")) || fs.existsSync(path.join(model_path, "config.json")))
-                              : model_path.toLowerCase().endsWith(".safetensors");
+                              : /\.(safetensors|gguf)$/i.test(model_path);
     if (!is_supported)
-        return { success: false, error: "only .safetensors files or diffusers model folders can be imported (.ckpt is not supported)" };
+        return { success: false, error: "only .safetensors or .gguf files or diffusers model folders can be imported (.ckpt is not supported)" };
 
     return await backend_json(["inspect_model", model_path]);
 })

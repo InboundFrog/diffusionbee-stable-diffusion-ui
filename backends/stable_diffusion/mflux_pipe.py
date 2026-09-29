@@ -2,6 +2,7 @@
 an mflux (MLX) model behind the part of the diffusers pipeline call that Engine.render() uses
 (prompt/steps/guidance/size/generator/callback_on_step_end, image+strength for img2img, negative_prompt,
 .images[0], pipe._interrupt to stop). See docs/mlx_benchmark_notes.md. Raises ImportError without mlx/mflux."""
+import glob
 import inspect
 import json
 import os
@@ -15,13 +16,26 @@ from mflux.utils.exceptions import StopImageGenerationException
 mx.set_cache_limit(2 << 30)  # MLX keeps freed buffers by default: +20 GB after one 1024² image, then swap
 
 
-def load(family, src, bits, transformer=None):
+def load(family, src, bits, transformer=None, cache=None):
     """src: the diffusers snapshot dir load_base() gets; mflux converts and quantizes it at load (3-9 s).
     transformer: a fine-tuned transformer .safetensors, already quantized to `bits` in mflux's own layout,
     that replaces the base one. The base weights are lazy and replaced before evaluation, so they're never read.
+    Or a .gguf transformer: loaded as if it were the base's own, at `bits`, then saved as an MLX file to `cache`,
+    which later loads use instead (converting adds ~25 s for Qwen-Image-2.1 and needs disk for the bf16 transformer).
     The mflux ModelConfig comes from the model's configs, so fine-tunes and the other variants of a family load too."""
     from mflux.models.common.config.model_config import ModelConfig
     from mflux.models.common.vae.tiling_config import TilingConfig
+    if transformer and transformer.endswith(".gguf"):
+        if os.path.exists(cache):
+            transformer = cache
+        else:
+            os.makedirs(os.path.dirname(cache), exist_ok=True)
+            from mlx.utils import tree_flatten
+            with tempfile.TemporaryDirectory(dir=os.path.dirname(cache)) as tmp:
+                pipe = load(family, gguf_as_diffusers(transformer, src, tmp), bits)
+                mx.save_safetensors(os.path.join(tmp, "t.safetensors"), dict(tree_flatten(pipe.model.transformer.parameters())))
+                os.replace(os.path.join(tmp, "t.safetensors"), cache)
+            return pipe
     cfg = lambda *p: json.load(open(os.path.join(src, *p)))
     if family == "zimage":  # Turbo is CFG-distilled; base Z-Image has twice its scheduler shift (6 vs 3)
         from mflux.models.z_image import ZImage
@@ -74,6 +88,37 @@ def load_transformer(module, path, family):
     if bad:
         raise ValueError(f"{os.path.basename(path)} doesn't fit the {family} MLX transformer ({len(bad)} tensors, e.g. {bad[0]})")
     module.load_weights(list(w.items()), strict=False)
+
+
+def gguf_as_diffusers(path, base, out):
+    """The diffusers folder `base` with the GGUF transformer at `path` in place of its own, made in `out`: the other
+    components are links to base's, the transformer is dequantized to bf16. GGUF files (ComfyUI-GGUF, llama.cpp quants)
+    keep the names of the model's original checkpoint, which diffusers' single-file converter for the class renames."""
+    import gguf
+    import torch
+    from diffusers.loaders.single_file_model import SINGLE_FILE_LOADABLE_CLASSES
+    from safetensors import safe_open
+    from safetensors.torch import save_file
+    for name in os.listdir(base):
+        if name != "transformer":
+            os.symlink(os.path.join(base, name), os.path.join(out, name))
+    os.mkdir(os.path.join(out, "transformer"))
+    config = json.load(open(os.path.join(base, "transformer", "config.json")))
+    json.dump(config, open(os.path.join(out, "transformer", "config.json"), "w"))
+    w = {t.name: torch.from_numpy(gguf.quants.dequantize(t.data, t.tensor_type)).to(torch.bfloat16)
+         for t in gguf.GGUFReader(path).tensors}
+    convert = SINGLE_FILE_LOADABLE_CLASSES.get(config["_class_name"], {}).get("checkpoint_mapping_fn")
+    if convert:  # none for Qwen-Image-2.1, whose checkpoint has diffusers names
+        w = convert(checkpoint=w, config=config)
+    have = {}  # mflux leaves the base's weights where the file has none, so it must match the base's exactly
+    for f in glob.glob(os.path.join(base, "transformer", "*.safetensors")):
+        with safe_open(f, "pt") as st:
+            have.update({k: tuple(st.get_slice(k).get_shape()) for k in st.keys()})
+    bad = [k for k in sorted(set(w) | set(have)) if k not in w or tuple(w[k].shape) != have.get(k)]
+    if bad:
+        raise ValueError(f"{os.path.basename(path)} doesn't fit its base model's transformer ({len(bad)} tensors, e.g. {bad[0]})")
+    save_file(w, os.path.join(out, "transformer", "model.safetensors"))
+    return out
 
 
 def lora_mapping(family):

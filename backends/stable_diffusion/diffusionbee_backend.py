@@ -14,6 +14,7 @@ os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")  # must be set before 
 
 import gc
 import glob
+import hashlib
 import inspect
 import json
 import math
@@ -152,8 +153,19 @@ def inspect_model(path):
             family = CROSS_ATTN_FAMILIES.get(cfg.get("cross_attention_dim"))
             return {"family": family, "is_inpaint": False, "type": "controlnet"}
         raise ValueError("Not a diffusers model folder (needs model_index.json, or config.json of a ControlNet)")
-
+    if path.endswith(".gguf"):  # mlx_cache: where its MLX conversion goes, ours to delete
+        info = gguf_info(check_path(path))
+        key = hashlib.sha1(os.path.realpath(path).encode()).hexdigest()[:10]
+        return {**info, "mlx_cache": str(DB_HOME / "gguf" / f"{Path(path).stem}-{key}-mlx{info['mlx_bits']}.safetensors")}
     return classify(safetensors_shapes(check_path(path)))
+
+
+def gguf_info(name):
+    """inspect_model() of a GGUF transformer: it runs on its base model's MLX engine, converted into an MLX file on its
+    first load. Requantizing Q4_K_M to MLX 4-bit would double its error, to 6-bit adds about a tenth, so Q5 and below
+    (and 4-bit floats) become 6-bit, the rest 8-bit. The quant type is read from the name, as GGUF repos name them."""
+    q = re.search(r"(?i)(?<![a-z0-9])(?:i?q|nvfp|mxfp)(\d)(?!\d)", os.path.basename(name))
+    return {"family": None, "is_inpaint": False, "type": "sd_model", "mlx_bits": 6 if q and int(q.group(1)) < 6 else 8}
 
 
 def classify(shapes):
@@ -266,8 +278,8 @@ def gated(repo):
 
 def repo_info(repo):
     """What the Models page can import from a HF repo: {diffusers: true} for a pipeline (or ControlNet) repo, else
-    the root .safetensors files the app can run, as [name, bytes, inspect_model() info], and the base model its
-    card names. Reads each file's header over the network, downloads no weights."""
+    the root .safetensors and .gguf files the app can run, as [name, bytes, inspect_model() info], and the base model
+    its card names. Reads each .safetensors header over the network, downloads no weights."""
     from huggingface_hub import HfApi, hf_hub_download
     from huggingface_hub.errors import GatedRepoError, RepositoryNotFoundError
     api = HfApi()
@@ -282,7 +294,7 @@ def repo_info(repo):
                 hf_hub_download(repo, "config.json", revision=info.sha))):
             return {"diffusers": True}
         base = (info.card_data or {}).get("base_model")
-        files = []
+        files = [[name, sizes[name], gguf_info(name)] for name in sorted(sizes) if name.endswith(".gguf") and "/" not in name]
         for name in sorted(f for f in sizes if f.endswith(".safetensors") and "/" not in f):
             header = api.parse_safetensors_file_metadata(repo, name, revision=info.sha)
             m = classify({k: SimpleNamespace(shape=tuple(t.shape)) for k, t in header.tensors.items()})
@@ -300,8 +312,7 @@ def repo_info(repo):
             return {"diffusers": True}
         raise
     if not files:
-        raise ValueError(f"{repo} has no diffusers model or .safetensors file DiffusionBee can run"
-                         + (" (GGUF isn't supported)" if any(f.endswith(".gguf") for f in sizes) else ""))
+        raise ValueError(f"{repo} has no diffusers model, .safetensors or .gguf file DiffusionBee can run")
     return {"diffusers": False, "base_model": base[0] if isinstance(base, list) else base, "files": files}
 
 
@@ -510,7 +521,9 @@ class Engine:
                     raise ValueError(f"{os.path.basename(src)} is an MLX transformer and needs its base model")
                 import mflux_pipe
                 family = family_hint or inspect_model(base)["family"]
-                self.base = mflux_pipe.load(family, base, info["mlx_bits"], transformer=src)
+                if info.get("mlx_cache") and not os.path.exists(info["mlx_cache"]):
+                    out("sdbk gnms Converting the GGUF model (first use only)")
+                self.base = mflux_pipe.load(family, base, info["mlx_bits"], transformer=src, cache=info.get("mlx_cache"))
                 self.base_key, self.family = src, family
                 return
             if info["type"] != "sd_model":

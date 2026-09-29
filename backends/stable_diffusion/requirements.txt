@@ -12,6 +12,7 @@ pillow==12.3.0
 numpy==2.5.3
 opencv-python-headless==5.0.0.93
 onnxruntime==1.30.0
+gguf==0.19.0  # GGUF transformers, dequantized once into MLX files (mflux_pipe.gguf_as_diffusers)
 # mflux runtime deps; mlx/mlx-metal/mflux themselves are installed --no-deps (build_mac.sh MLX_PKGS): mflux's
 # declared deps would add matplotlib and opencv-python<5 next to our opencv-python-headless
 piexif==1.1.3

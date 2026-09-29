@@ -30,6 +30,8 @@ fsspec==2026.9.0
     # via
     #   huggingface-hub
     #   torch
+gguf==0.19.0
+    # via -r backends/stable_diffusion/requirements.txt
 h11==0.16.0
     # via httpcore
 hf-xet==1.6.0
@@ -72,6 +74,7 @@ numpy==2.5.3
     #   -r backends/stable_diffusion/requirements.txt
     #   accelerate
     #   diffusers
+    #   gguf
     #   onnxruntime
     #   opencv-python-headless
     #   peft
@@ -110,6 +113,7 @@ pygments==2.21.0
 pyyaml==6.0.3
     # via
     #   accelerate
+    #   gguf
     #   huggingface-hub
     #   peft
     #   transformers
@@ -118,7 +122,9 @@ regex==2026.9.10
     #   diffusers
     #   transformers
 requests==2.34.2
-    # via diffusers
+    # via
+    #   diffusers
+    #   gguf
 rich==15.0.0
     # via typer
 safetensors==0.8.0
@@ -147,6 +153,7 @@ torch==2.14.0
     #   peft
 tqdm==4.70.1
     # via
+    #   gguf
     #   huggingface-hub
     #   peft
     #   transformers

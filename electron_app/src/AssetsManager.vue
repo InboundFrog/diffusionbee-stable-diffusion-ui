@@ -145,10 +145,11 @@ export default {
             })
         },
 
-        // any diffusers repo on huggingface.co, or one .safetensors file of a repo (single-file model, LoRA, MLX
-        // transformer): fetched into the HF cache (nothing to fetch if it's already there) and registered like an
-        // imported model, so Remove only forgets it. base_id: the asset of the base model the repo's card names,
-        // which gives a LoRA its family and an MLX transformer the rest of its pipeline. callback(error or undefined)
+        // any diffusers repo on huggingface.co, or one .safetensors or .gguf file of a repo (single-file model, LoRA,
+        // MLX or GGUF transformer): fetched into the HF cache (nothing to fetch if it's already there) and registered
+        // like an imported model, so Remove only forgets it (and deletes a GGUF's MLX conversion). base_id: the asset
+        // of the base model the repo's card names, which gives a LoRA its family and an MLX or GGUF transformer the
+        // rest of its pipeline. callback(error or undefined)
         import_hf_model(repo, asset_id, file, base_id, on_progress, callback){
             ipc_download(['download_hf_model', repo, file ? '' : 'fp16', file || ''], on_progress, (asset_path) => {
                 window.ipcRenderer.invoke('inspect_model', asset_path).then(result => {
@@ -161,6 +162,8 @@ export default {
                     if(!err && info.mlx_bits){
                         Vue.set(this.local_assets[asset_id], 'base_model_id', base_id)
                         Vue.set(this.local_assets[asset_id].model_meta_data, 'mlx', true)
+                        if(info.mlx_cache) // where the backend puts a GGUF transformer's MLX conversion
+                            Vue.set(this.local_assets[asset_id], 'mlx_cache', info.mlx_cache)
                     }
                     callback(err)
                 })
@@ -183,6 +186,8 @@ export default {
             Vue.delete(this.downloading, asset_id );
             Vue.delete(this.local_assets, asset_id );
 
+            if(asset_details && asset_details.mlx_cache) // made by the backend from a GGUF file: ours
+                window.ipcRenderer.sendSync('delete_file', asset_details.mlx_cache)
             // imported models are the user's own files: only forget them
             if(!asset_details || asset_details.is_locally_imported || !asset_details.asset_path)
                 return

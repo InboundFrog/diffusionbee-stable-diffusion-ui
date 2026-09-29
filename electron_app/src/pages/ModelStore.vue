@@ -14,7 +14,7 @@
                 </select>
                 <div class="l_button button_colored button_small" style="display:inline-block" @click="import_hf_file(hf_file)"> Import File </div>
             </div>
-            <p style="opacity:0.6"> A repo id or huggingface.co link: a diffusers model, or a repo of .safetensors models, LoRAs or MLX transformers (GGUF isn't supported). The list has the ones already in the Hugging Face cache ({{hf_cached_repos.length}}); others are downloaded into it. </p>
+            <p style="opacity:0.6"> A repo id or huggingface.co link: a diffusers model, or a repo of .safetensors models, LoRAs or MLX transformers, or of GGUF transformers (converted to MLX on first use). The list has the ones already in the Hugging Face cache ({{hf_cached_repos.length}}); others are downloaded into it. </p>
         </div>
         <hr>
 
@@ -157,17 +157,17 @@ const ModelStore ={
             })
         },
 
-        // one file of hf_files. A LoRA gets its family, and an MLX transformer its pipeline, from the base model
+        // one file of hf_files. A LoRA gets its family, and an MLX or GGUF transformer its pipeline, from the base model
         import_hf_file(file){
             let am = this.app.assets_manager
             let {repo, base_model, files} = this.hf_files
             let info = files.find(f => f[0] == file)[2]
             let base = am.catalog.find(m => m.hf_repo == base_model) || Object.values(am.all_avail_assets).find(a => a.hf_repo == base_model)
             if(info.mlx_bits && !base){
-                this.app.show_toast(`${file} is an MLX transformer for ${base_model || "an unnamed base model"}. Import that model first.`)
+                this.app.show_toast(`${file} runs on ${base_model || "a base model its repo doesn't name"}. Import that model first.`)
                 return
             }
-            let name = files.length == 1 ? repo.split("/")[1] : file.replace(/\.safetensors$/, "")
+            let name = files.length == 1 ? repo.split("/")[1] : file.replace(/\.(safetensors|gguf)$/, "")
             this.start_hf_import(repo, name, file, base && base.id)
         },
 

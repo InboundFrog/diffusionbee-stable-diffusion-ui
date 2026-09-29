@@ -55,6 +55,18 @@ The base weights are never read: its transformer is replaced before evaluation, 
 Every tensor must fit the family's mflux transformer, so a file for another family or bit width fails at load.
 It takes LoRAs but not inpaint, as on the MLX engine generally.
 
+A GGUF transformer (`.gguf`: llama.cpp quants of a DiT, as ComfyUI-GGUF, city96, unsloth and QuantStack publish them)
+runs the same way, from an MLX file made on its first load (about 25 s extra for Qwen-Image-2.1):
+- It is dequantized to bf16 with `gguf`, renamed from the original checkpoint's names by diffusers' single-file converter
+  for the base's transformer class, and loaded by mflux as if it were the base's own transformer, into a temporary
+  diffusers folder next to the MLX file (links to the base's other parts; it needs disk for the bf16 transformer).
+  Every tensor must match the base transformer's, so a GGUF of another model fails before anything is quantized.
+- The MLX file (`inspect_model`'s `mlx_cache`, `~/.diffusionbee/gguf/<name>-<hash of its path>-mlx<bits>.safetensors`) is
+  ours: the app deletes it when the model is removed. The `.gguf` itself stays in the HF cache.
+- Bits: requantizing a GGUF adds its error to the MLX quantization's. On Qwen-Image-2.1 weights (relative RMS error):
+  Q4_K_M 0.058 becomes 0.112 at MLX 4-bit but 0.063 at 6-bit; Q6_K 0.018 becomes 0.020 at 8-bit. So Q5 and below
+  (and NVFP4/MXFP4) become 6-bit, Q6, Q8 and float GGUFs 8-bit, going by the quant type in the file name.
+
 Generation fields:
 
 | Field | Meaning |
@@ -127,19 +139,21 @@ Each prints plain lines on stdout. On failure it exits non-zero and the last std
   - `{"diffusers": true}` for a pipeline or ControlNet repo (`model_index.json` or `config.json`), imported with `download_model`.
   - Otherwise `{"diffusers": false, "base_model": "Qwen/Qwen-Image-2.1", "files": [[name, bytes, inspect_model info], ...]}`:
     the root `.safetensors` files the app can run (LoRAs, MLX transformers, sd15/sdxl/sd3/flux/zimage checkpoints),
-    classified from their headers, which it reads over the network without downloading the weights.
+    classified from their headers, which it reads over the network without downloading the weights, and the root
+    `.gguf` files, as transformers of the base model (by name only).
     `base_model` comes from the model card, `null` if it names none.
     The app gives a LoRA with no family its base's family, and an MLX transformer its base as `base_model_path`.
-  - It fails when there is nothing to run, e.g. GGUF-only repos (not supported) or ComfyUI fp8/int8 files,
+  - It fails when there is nothing to run, e.g. ComfyUI fp8/int8 files,
     and for repos whose Hub `pipeline_tag` isn't image generation (`*-to-image`), e.g. an MLX LLM, whose weights look like an MLX transformer's.
   - Offline, a cached pipeline repo still gives `{"diffusers": true}`.
-- `diffusionbee_backend inspect_model <path>` (a `.safetensors` file or a diffusers folder)
+- `diffusionbee_backend inspect_model <path>` (a `.safetensors` or `.gguf` file, or a diffusers folder)
   prints one JSON line `{"family": "sdxl", "is_inpaint": false, "type": "sd_model"|"lora"|"controlnet"}`.
   - `family` is `null` when unknown.
   - A diffusers folder of a variant that isn't its family's catalog model adds `defaults`, which the app merges into the model's
     `model_meta_data`: Z-Image base (scheduler shift 6, not Turbo's 3) and FLUX.2 without `is_distilled` (klein base, FLUX.2-dev)
     get 50 steps, cfg 4 and a negative prompt; FLUX.1 without `guidance_embeds` (schnell-like) gets 4 steps, cfg 0.
   - An MLX transformer file (`.scales` tensors) adds `"mlx_bits": 8`, with `family` `null`: it comes from the base model.
+    A `.gguf` file is one too (see the MLX transformer section), and adds `mlx_cache`, where its MLX file goes.
   - A LoRA's family comes from its cross-attention width: 768/1024 gives sd15, 2048 gives sdxl. It is `null` for DiT LoRAs, which the app shows for every model.
 - `diffusionbee_backend upscale <in.png> <out.png>`
   4x Real-ESRGAN x4plus on MPS (fp16, 256 px tiles), prints `done <out.png>`. Alpha is kept.

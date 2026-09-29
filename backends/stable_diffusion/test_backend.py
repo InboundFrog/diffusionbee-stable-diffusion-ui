@@ -180,8 +180,9 @@ def test_repo_info():
     info = db.repo_info("latent-consistency/lcm-lora-sdv1-5")
     assert info["base_model"] == "runwayml/stable-diffusion-v1-5"
     assert info["files"] == [["pytorch_lora_weights.safetensors", 134621556, {"family": "sd15", "is_inpaint": False, "type": "lora"}]]
-    with pytest.raises(ValueError, match="GGUF isn't supported"):
-        db.repo_info("city96/FLUX.1-dev-gguf")
+    info = db.repo_info("city96/FLUX.1-dev-gguf")  # GGUF files by name, no header read
+    assert info["base_model"] == "black-forest-labs/FLUX.1-dev"
+    assert ["flux1-dev-Q4_K_S.gguf", 6805988640, {"family": None, "is_inpaint": False, "type": "sd_model", "mlx_bits": 6}] in info["files"]
     with pytest.raises(ValueError, match="not an image generation model"):  # an MLX LLM's weights look like an MLX transformer's
         db.repo_info("mlx-community/Qwen3.8-27B-4bit")
 
@@ -207,6 +208,39 @@ def test_mlx_transformer_file():
     assert mx.array_equal(dst.modulation.layers[1].weight, src.modulation.layers[1].weight)
     with pytest.raises(ValueError, match="doesn't fit the test MLX transformer"):
         mflux_pipe.load_transformer(T(4), path, "test")
+
+
+def test_gguf():
+    # a GGUF transformer runs as its base's diffusers folder with the transformer dequantized, if every tensor fits
+    gguf = pytest.importorskip("gguf")
+    mx = pytest.importorskip("mlx.core")
+    import mflux_pipe
+    assert [db.gguf_info(f"m-{q}.gguf")["mlx_bits"] for q in ("Q4_K_M", "IQ3_XXS", "Q5_1", "NVFP4", "Q6_K", "Q8_0", "BF16")] == [6] * 4 + [8] * 3
+    base = os.path.join(TMP, "gguf_base")
+    os.makedirs(os.path.join(base, "transformer"))
+    os.makedirs(os.path.join(base, "vae"))
+    json.dump({"_class_name": "QwenImage21Transformer2DModel"}, open(os.path.join(base, "transformer", "config.json"), "w"))
+    shapes = {"blocks.0.to_q.weight": (64, 64), "norm.weight": (64,)}
+    save_file({k: np.zeros(v, np.float16) for k, v in shapes.items()}, os.path.join(base, "transformer", "t.safetensors"))
+    w = np.random.default_rng(0).standard_normal((64, 64)).astype(np.float32)
+    path = os.path.join(TMP, "t-Q8_0.gguf")
+    writer = gguf.GGUFWriter(path, "qwen_image21")
+    writer.add_tensor("blocks.0.to_q.weight", gguf.quants.quantize(w, gguf.GGMLQuantizationType.Q8_0),
+                      raw_dtype=gguf.GGMLQuantizationType.Q8_0)
+    writer.add_tensor("norm.weight", np.ones(64, np.float32))
+    writer.write_header_to_file(), writer.write_kv_data_to_file(), writer.write_tensors_to_file(), writer.close()
+    info = db.inspect_model(path)
+    assert info["mlx_bits"] == 8 and info["mlx_cache"].startswith(os.path.join(TMP, ".diffusionbee", "gguf", "t-Q8_0-"))
+
+    out = mflux_pipe.gguf_as_diffusers(path, base, tempfile.mkdtemp())
+    assert os.path.islink(os.path.join(out, "vae")) and os.path.exists(os.path.join(out, "transformer", "config.json"))
+    t = mx.load(os.path.join(out, "transformer", "model.safetensors"))
+    assert t["blocks.0.to_q.weight"].dtype == mx.bfloat16
+    assert np.abs(np.array(t["blocks.0.to_q.weight"].astype(mx.float32)) - w).max() < 0.05
+    shapes["blocks.1.to_q.weight"] = (64, 64)  # the GGUF misses a tensor: the base's would stay in
+    save_file({k: np.zeros(v, np.float16) for k, v in shapes.items()}, os.path.join(base, "transformer", "t.safetensors"))
+    with pytest.raises(ValueError, match="t-Q8_0.gguf doesn't fit its base model's transformer .1 tensors, e.g. blocks.1.to_q"):
+        mflux_pipe.gguf_as_diffusers(path, base, tempfile.mkdtemp())
 
 
 def test_mlx_lora():
